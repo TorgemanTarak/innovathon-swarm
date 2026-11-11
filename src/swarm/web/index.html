@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0c1012">
+  <meta name="description" content="SWARM — a live, evidence-driven endpoint repair prototype.">
+  <title>SWARM · Collective recovery</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#fleet">Skip to fleet</a>
+  <div class="app-shell">
+    <header class="masthead">
+      <a class="brand" href="/" aria-label="SWARM home">
+        <svg class="brand-mark" width="36" height="36" viewBox="0 0 36 36" fill="none" aria-hidden="true"><path d="m18 2 14 8v16l-14 8-14-8V10L18 2Z" stroke="currentColor" stroke-width="1.5"/><path d="m18 9 8 4.5v9L18 27l-8-4.5v-9L18 9Z" fill="currentColor"/><path d="m18 2 0 7M32 10l-6 3.5M32 26l-6-3.5M18 34v-7M4 26l6-3.5M4 10l6 3.5" stroke="currentColor"/></svg>
+        <span>SWARM<span class="brand-version">/ 0.1</span></span>
+      </a>
+      <nav class="main-nav" aria-label="Main navigation"><a class="active" href="#fleet">Fleet overview</a><a href="#evidence">Repair evidence</a><a href="#activity">Activity</a></nav>
+      <div class="header-right"><span class="connection" id="connection" role="status"><i></i>Connecting</span><button class="icon-button" id="access-button" aria-label="Configure coordinator access" title="Coordinator access"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v3"/></svg></button></div>
+    </header>
+
+    <main>
+      <div class="error-banner" id="error-banner" role="alert" hidden><span id="error-message"></span><button id="retry-button">Retry connection</button></div>
+      <section class="page-intro" aria-labelledby="page-title">
+        <div><p class="eyebrow"><span class="mini-line"></span>NEXTHINK INNOVATHON <span class="slash">/</span> COLLECTIVE INTELLIGENCE</p><h1 id="page-title">One device heals.<br><span>Every device heals.</span></h1><p class="intro-copy">Local observations. Shared remedies. Recovery you can verify.</p></div>
+        <div class="intro-side"><span class="mode-label" id="mode-label">CONNECTING TO COORDINATOR</span><div class="system-time"><span id="snapshot-time">Waiting for first snapshot</span><svg width="40" height="18" viewBox="0 0 40 18" fill="none" aria-hidden="true"><path d="M1 10h9l3-6 5 11 5-13 4 8h12" stroke="currentColor" stroke-width="1.5"/></svg></div></div>
+      </section>
+
+      <section class="metrics" aria-label="Fleet metrics">
+        <div class="metric"><span class="metric-label">HEALTHY ENDPOINTS</span><div class="metric-value"><strong id="metric-healthy">—</strong><span id="metric-total">/ —</span><span class="metric-dot teal"></span></div><p id="metric-health-note">Waiting for endpoint telemetry</p></div>
+        <div class="metric"><span class="metric-label">ACTIVE INCIDENTS</span><div class="metric-value"><strong id="metric-incidents">—</strong><span class="metric-dot amber"></span></div><p>Endpoints reporting a failed operation</p></div>
+        <div class="metric"><span class="metric-label">VERIFIED REPLAYS</span><div class="metric-value"><strong id="metric-replays">—</strong><span class="metric-dot teal"></span></div><p id="metric-replay-note">Functional checks, not assumed success</p></div>
+        <div class="metric"><span class="metric-label">LEARNED RECIPES</span><div class="metric-value"><strong id="metric-recipes">—</strong><span class="metric-dot neutral"></span></div><p id="metric-recipe-note">Evidence-backed repair candidates</p></div>
+      </section>
+
+      <div class="main-grid">
+        <section class="panel fleet-panel" id="fleet" aria-labelledby="fleet-title">
+          <div class="panel-header"><div class="section-heading"><span class="section-number">01</span><h2 id="fleet-title">The swarm</h2></div><div class="legend"><span><i class="teal"></i>Healthy</span><span><i class="amber"></i>Issue detected</span><span><i class="neutral"></i>Unknown</span></div></div>
+          <div class="network-stage" id="network-stage"><div class="network-topline"><span>ENDPOINT KNOWLEDGE NETWORK</span><span id="network-status">AWAITING SIGNAL</span></div><div id="topology" class="topology" aria-label="Live endpoint network"><div class="network-empty"><span class="empty-orbit">⬡</span><strong>Waiting for the first endpoint</strong><p>Start a SWARM agent to bring this network online.</p></div></div><div class="network-footer"><span><i class="privacy-dot"></i>Raw logs stay on the endpoint</span><span>Recipes + structured evidence only</span></div></div>
+          <div class="agent-list" id="agent-list"><div class="empty-state">Endpoint cards will appear here when agents register.</div></div>
+        </section>
+
+        <aside class="sidebar">
+          <section class="panel control-panel" aria-labelledby="control-title">
+            <div class="panel-header"><div class="section-heading"><span class="section-number">02</span><h2 id="control-title">Demo controls</h2></div><span class="tiny-badge" id="demo-badge">SANDBOX</span></div>
+            <div class="control-body"><p class="muted control-description" id="control-description">A controlled failure. A real repair loop.</p>
+              <button class="button button-fault" id="fault-button" disabled><span class="button-icon">↯</span><span>Inject cache fault<small>Break the demo app on every endpoint</small></span><span class="button-arrow">↗</span></button>
+              <label class="field-label" for="source-select">ORIGINATING ENDPOINT</label><select id="source-select" disabled><option value="">No endpoints connected</option></select>
+              <button class="button button-primary" id="repair-button" disabled><span class="button-icon">↳</span><span>Simulate human repair<small>Quarantine the cache on this endpoint</small></span><span class="button-arrow">↗</span></button>
+              <p class="control-hint">The agent observes this change. Other endpoints receive a recipe only after validation.</p>
+              <div class="control-divider"></div>
+              <div class="control-bottom"><button class="button button-subtle" id="pause-button" disabled><span id="pause-icon">Ⅱ</span><span id="pause-label">Pause rollout</span></button><button class="button button-subtle" id="reset-button" disabled><span>↻</span>Reset demo</button></div>
+              <details class="failure-controls"><summary>Test failed verification<span>+</span></summary><div><label class="field-label" for="failure-select">TARGET ENDPOINT</label><select id="failure-select" disabled><option value="">No endpoints connected</option></select><button class="button button-subtle" id="failure-button" disabled>Fail next verification</button><p class="control-hint">Arm before repairing the origin. A failed canary must pause propagation.</p></div></details>
+            </div>
+          </section>
+        </aside>
+      </div>
+
+      <section class="panel evidence-panel" id="evidence" aria-labelledby="evidence-title">
+        <div class="panel-header"><div class="section-heading"><span class="section-number">03</span><h2 id="evidence-title">Repair evidence</h2></div><span class="panel-caption">OBSERVATION → CANDIDATE → CANARY → VERIFIED REPLAY</span></div>
+        <div id="recipe-list"><div class="evidence-empty"><span class="empty-symbol">⌘</span><div><h3>No repair learned yet</h3><p>Inject a fault, then repair one endpoint. Its recovery becomes a candidate for the swarm.</p></div><span class="waiting-label">AWAITING DISCOVERY</span></div></div>
+      </section>
+
+      <section class="panel activity-panel" id="activity" aria-labelledby="activity-title">
+        <div class="panel-header"><div class="section-heading"><span class="section-number">04</span><h2 id="activity-title">Activity ledger</h2></div><span class="activity-count" id="activity-count">0 EVENTS</span></div>
+        <div id="event-list"><div class="empty-state">The evidence trail starts when an endpoint connects.</div></div>
+      </section>
+      <footer><span><span class="footer-mark">⬡</span> SWARM · INNOVATHON PROTOTYPE</span><span>Observe locally. Learn together.<span class="footer-separator">/</span><span id="footer-status">Awaiting coordinator</span></span></footer>
+    </main>
+  </div>
+  <div class="toast" id="toast" role="status" hidden></div>
+  <dialog id="access-dialog" aria-labelledby="access-title"><form id="access-form"><div class="dialog-heading"><span class="eyebrow">COORDINATOR ACCESS</span><button type="button" class="icon-button" id="close-dialog" aria-label="Close access settings">×</button></div><h2 id="access-title">Connect to the swarm</h2><p>Enter the shared coordinator token if authentication is enabled. It stays in this browser tab's session.</p><label class="field-label" for="access-token">ACCESS TOKEN</label><input id="access-token" type="password" autocomplete="off" placeholder="Leave empty for a local demo"><p id="access-error" class="access-error" role="alert" hidden></p><button class="button button-primary" type="submit">Connect</button></form></dialog>
+</body>
+</html>
