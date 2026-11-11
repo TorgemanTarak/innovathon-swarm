@@ -1,3 +1,4 @@
+import httpx
 import pytest
 
 from swarm.cli import _agent_args, _check_bind, parser
@@ -54,3 +55,34 @@ def test_enabled_child_model_settings_are_preserved(tmp_path, monkeypatch):
 
     assert child_args.llm_base_url == args.llm_base_url
     assert child_args.llm_model == args.llm_model
+
+
+@pytest.mark.parametrize("missing,offline", [(False, False), (True, False), (False, True)])
+def test_expected_fleet_requires_recent_heartbeats_not_app_health(
+    monkeypatch, capsys, missing, offline
+):
+    from swarm.cli import main
+
+    snapshot = {
+        "agents": [
+            {"agent_id": "a", "online": True, "health": "unhealthy"},
+            *([] if missing else [{"agent_id": "b", "online": not offline, "health": "healthy"}]),
+        ]
+    }
+    monkeypatch.setenv("SWARM_TOKEN", "local-test-token")
+
+    def get(url, **kwargs):
+        assert kwargs["headers"] == {"X-Swarm-Token": "local-test-token"}
+        assert kwargs["trust_env"] is False
+        return httpx.Response(200, json=snapshot, request=httpx.Request("GET", url))
+
+    monkeypatch.setattr("swarm.cli.httpx.get", get)
+    args = ["status", "--expect-agents", "a", "b"]
+    if missing or offline:
+        with pytest.raises(SystemExit) as exc:
+            main(args)
+        assert exc.value.code == 1
+        assert ("Missing: b" if missing else "Offline: b") in capsys.readouterr().err
+    else:
+        main(args)
+        assert '"unhealthy"' in capsys.readouterr().out

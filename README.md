@@ -61,6 +61,23 @@ Use a unique `--id` on each Mac. Each data directory stays bound to that endpoin
 
 Check LAN reachability early: office Wi-Fi isolation and host firewalls can block direct laptop connections. The local rehearsal is the fallback. The shared token is a trusted-team demo mechanism; use this only on an appropriate private network. TLS, per-device identities and production enrollment are future work.
 
+All endpoints must use the same reachable coordinator URL and token. The dashboard
+shows online, offline and registered counts separately from app health. Online means
+a heartbeat within 30 seconds; a broken app can still have an online agent. The
+network diagram labels its six-endpoint sample when the fleet is larger.
+
+To verify a known fleet, use its expected endpoint IDs:
+
+```bash
+uv run swarm status --coordinator http://COORDINATOR_LAN_IP:8765 \
+  --expect-agents tarak-mac teammate-b teammate-c teammate-d
+```
+
+This prints the snapshot and exits unsuccessfully if any expected ID is missing or
+offline. It authenticates with `SWARM_TOKEN` and does not require every app to be
+healthy. Use distinct IDs and data directories; joining a different coordinator
+creates a separate fleet. There is no automatic LAN discovery or direct peer mesh.
+
 ## Developer experience
 
 ```bash
@@ -71,6 +88,7 @@ make check       # Ruff lint + format check + mypy + pytest
 make format      # Apply Ruff fixes and formatting
 make test-dashboard # Dashboard regression tests (Node 22+, no npm install)
 make test-browser   # Real Chromium tests (optional setup below)
+make benchmark-fleet # Coordinator HTTP measurements using synthetic peers
 ```
 
 `make dev` runs only the coordinator. Launch one or more `swarm node` commands in separate terminals against it. This mode uses `.swarm/dev-coordinator.sqlite`; the complete demo uses `.swarm/local/coordinator.sqlite`.
@@ -117,6 +135,20 @@ set `SWARM_BROWSER_EXECUTABLE` to its executable path. Set `SWARM_BROWSER_ARTIFA
 to a directory to retain screenshots and traces. The browser suite is opt-in and
 is separate from `make check`; the default demo still needs no browser automation
 dependency or browser download.
+
+### Connectivity and scaling evidence
+
+The coordinator topology avoids all-to-all peer traffic. A normal endpoint tick
+requests its own work and sends its own heartbeat; it never downloads the fleet
+directory. Three SQLite indexes prevent those work polls from scanning other
+endpoints' command and assignment history. Dashboard lookups are also indexed in
+memory per snapshot, avoiding repeated history scans for every endpoint card.
+
+`make benchmark-fleet` measures real loopback HTTP at 32, 128 and 512 synthetic peers
+and writes `.swarm/benchmarks/fleet.json`. Its synthetic heartbeats and outcomes do
+not count as actual app recovery or macOS validation. Actual endpoint reconnects
+are exercised separately by the process integration tests. See
+[connectivity and scaling](docs/scaling.md) for measurements and remaining limits.
 
 ## Optional local model
 

@@ -17,6 +17,9 @@
   let topologyKey = "";
   let recipeKey = "";
   let eventKey = "";
+  let agentsById = new Map();
+  let rolesByAgent = new Map();
+  let outcomesByRecipe = new Map();
   const seenEvents = new Set();
 
   // Guard the rendering boundary, not the full versioned wire contract.
@@ -49,7 +52,7 @@
   }
   function health(agent) { return isStale(agent) ? "unknown" : (agent.health || "unknown"); }
   function platformLabel(value) { return ({darwin:"macOS",macos:"macOS",windows:"Windows",linux:"Linux"})[value] || value || "Unknown OS"; }
-  function labelFor(id) { return state?.agents.find((agent) => agent.agent_id === id)?.label || id || "Coordinator"; }
+  function labelFor(id) { return agentsById.get(id)?.label || id || "Coordinator"; }
   function short(value) { return String(value || "").slice(0, 12); }
   function demoLink(value) {
     try { const url = new URL(value); return ["http:","https:"].includes(url.protocol) ? url.href : null; } catch (_) { return null; }
@@ -92,6 +95,10 @@
     if (!ok) $("error-message").textContent = message || "The coordinator is unreachable. Showing the last received snapshot.";
     $("footer-status").textContent = ok ? "Coordinator online" : "Connection interrupted";
     if (!ok && state) $("snapshot-time").textContent = "Last snapshot · " + $("snapshot-time").dataset.time;
+    if (!ok && state) {
+      const online = state.agents.filter((agent) => !isStale(agent)).length;
+      $("membership-status").textContent = `Last snapshot · ${online} online · ${state.agents.length - online} offline · ${state.agents.length} registered`;
+    }
     updateControls();
   }
 
@@ -139,20 +146,39 @@
     });
   }
 
+  function indexSnapshot() {
+    // Build lookups once per snapshot rather than scan fleet history for each card.
+    agentsById = new Map(state.agents.map((agent) => [agent.agent_id, agent]));
+    rolesByAgent = new Map();
+    outcomesByRecipe = new Map();
+    for (const outcome of state.outcomes) {
+      if (!outcomesByRecipe.has(outcome.recipe_id)) outcomesByRecipe.set(outcome.recipe_id, []);
+      outcomesByRecipe.get(outcome.recipe_id).push(outcome);
+      if (!rolesByAgent.has(outcome.agent_id) && agentsById.get(outcome.agent_id)?.incident_id === outcome.incident_id) {
+        rolesByAgent.set(outcome.agent_id, outcome.status === "verified" ? "Verified replay" : outcome.status);
+      }
+    }
+    for (const {candidate} of state.recipes) {
+      if (!rolesByAgent.has(candidate.source_agent_id) && agentsById.get(candidate.source_agent_id)?.incident_id === candidate.incident_id) {
+        rolesByAgent.set(candidate.source_agent_id, "Origin discovery");
+      }
+    }
+    for (const recipe of state.recipes) {
+      if (recipe.status === "canary" && !rolesByAgent.has(recipe.canary_agent_id)) rolesByAgent.set(recipe.canary_agent_id, "Canary endpoint");
+    }
+  }
+
   function roleFor(agent) {
-    const origin = state.recipes.find((item) => item.candidate.source_agent_id === agent.agent_id && item.candidate.incident_id === agent.incident_id);
-    const canary = state.recipes.find((item) => item.canary_agent_id === agent.agent_id && item.status === "canary");
-    const outcome = state.outcomes.find((item) => item.agent_id === agent.agent_id && item.incident_id === agent.incident_id);
-    if (outcome?.status === "verified") return "Verified replay";
-    if (outcome && outcome.status !== "verified") return outcome.status;
-    if (origin) return "Origin discovery";
-    if (canary) return "Canary endpoint";
     // Earlier incidents remain visible in Repair evidence, not as this incident's role.
-    return agent.mode === "simulated" ? "Simulated endpoint" : "Native endpoint";
+    return rolesByAgent.get(agent.agent_id) || (agent.mode === "simulated" ? "Simulated endpoint" : "Native endpoint");
   }
 
   function renderTopology() {
     const agents = state.agents.slice(0, 6);
+    const total = state.agents.length;
+    const online = state.agents.filter((agent) => !isStale(agent)).length;
+    $("membership-status").textContent = `${online} online · ${total - online} offline · ${total} registered`;
+    $("topology-scope").textContent = total > agents.length ? `Showing ${agents.length} of ${total} endpoints` : "Shared coordinator";
     const paused = !!state.paused;
     const pausedRecipes = state.recipes.filter((r) => r.status === "paused").length;
     const canaries = state.recipes.filter((r) => r.status === "canary");
@@ -164,7 +190,7 @@
     let status = paused ? "ROLLOUT PAUSED" : [recipePause,activity].filter(Boolean).join(" · ") || "LISTENING FOR EVIDENCE";
     if (!agents.length) status = "AWAITING SIGNAL";
     $("network-status").textContent = status;
-    const key = JSON.stringify([agents.map((a) => [a.agent_id,a.label,health(a),roleFor(a)]),status,state.recipes.length,[...canaryAgents]]);
+    const key = JSON.stringify([agents.map((a) => [a.agent_id,a.label,health(a),roleFor(a)]),total,online,status,state.recipes.length,[...canaryAgents]]);
     if (key === topologyKey) return;
     topologyKey = key;
     if (!agents.length) {
@@ -183,7 +209,7 @@
       const label = agent.label.length > 22 ? `${agent.label.slice(0,20)}…` : agent.label;
       return `<path d="${line}" fill="none" stroke="${color}" stroke-opacity=".18" stroke-width="1.4"/><path d="${line}" fill="none" stroke="${color}" stroke-opacity="${active ? ".7" : ".28"}" stroke-width="1.4" stroke-dasharray="${active ? "4 12" : "2 9"}" ${active ? 'class="flow-line"' : ""}/><circle cx="${x}" cy="195" r="25" fill="#101b1c" stroke="${color}" stroke-opacity=".45"/><circle cx="${x}" cy="195" r="32" fill="none" stroke="${color}" stroke-opacity=".07"/><g transform="translate(${x - 10} 188)" fill="none" stroke="${color}" stroke-width="1.3"><rect x="1" y="0" width="18" height="12" rx="1.7"/><path d="M-1 15h22M7 12v3M13 12v3"/></g><circle cx="${x + 19}" cy="177" r="4" fill="${color}" stroke="#10191b" stroke-width="2"/><text x="${x}" y="241" fill="#c7d7d0" text-anchor="middle" font-size="10">${esc(label)}</text><text x="${x}" y="259" fill="${color}" opacity=".7" text-anchor="middle" font-size="7.5" letter-spacing=".5">${esc(roleFor(agent).toUpperCase())}</text>`;
     }).join("");
-    $("topology").innerHTML = `<svg class="network-svg" viewBox="0 0 900 285" role="img" aria-label="${esc(`${agents.length} endpoints connected to the shared fix registry. ${status.toLowerCase()}.`)}"><defs><radialGradient id="hub-halo"><stop stop-color="${hubColor}" stop-opacity=".11"/><stop offset="1" stop-color="${hubColor}" stop-opacity="0"/></radialGradient></defs><circle cx="450" cy="65" r="85" fill="url(#hub-halo)"/>${nodes}<circle cx="450" cy="65" r="43" fill="none" stroke="${hubColor}" stroke-opacity=".12" stroke-dasharray="2 6"/><circle cx="450" cy="65" r="34" fill="#11251f" stroke="${hubColor}" stroke-opacity=".45"/><path d="m450 44 18 10.5v21L450 86l-18-10.5v-21L450 44Z" fill="none" stroke="${hubColor}" stroke-width="1.2"/><path d="m450 52 11 6.5v13L450 78l-11-6.5v-13L450 52Z" fill="${hubColor}" opacity=".85"/><text x="510" y="61" fill="#c5d7cc" font-size="10" letter-spacing="1">SHARED FIX REGISTRY</text><text x="510" y="78" fill="#6b9382" font-size="8">${state.recipes.length} ${state.recipes.length === 1 ? "recipe" : "recipes"} · evidence before execution</text></svg>`;
+    $("topology").innerHTML = `<svg class="network-svg" viewBox="0 0 900 285" role="img" aria-label="${esc(`${agents.length} of ${total} registered endpoints shown. ${online} endpoints have a recent heartbeat. ${status.toLowerCase()}.`)}"><defs><radialGradient id="hub-halo"><stop stop-color="${hubColor}" stop-opacity=".11"/><stop offset="1" stop-color="${hubColor}" stop-opacity="0"/></radialGradient></defs><circle cx="450" cy="65" r="85" fill="url(#hub-halo)"/>${nodes}<circle cx="450" cy="65" r="43" fill="none" stroke="${hubColor}" stroke-opacity=".12" stroke-dasharray="2 6"/><circle cx="450" cy="65" r="34" fill="#11251f" stroke="${hubColor}" stroke-opacity=".45"/><path d="m450 44 18 10.5v21L450 86l-18-10.5v-21L450 44Z" fill="none" stroke="${hubColor}" stroke-width="1.2"/><path d="m450 52 11 6.5v13L450 78l-11-6.5v-13L450 52Z" fill="${hubColor}" opacity=".85"/><text x="510" y="61" fill="#c5d7cc" font-size="10" letter-spacing="1">SHARED FIX REGISTRY</text><text x="510" y="78" fill="#6b9382" font-size="8">${state.recipes.length} ${state.recipes.length === 1 ? "recipe" : "recipes"} · evidence before execution</text></svg>`;
   }
 
   function renderAgents() {
@@ -212,7 +238,7 @@
     }
     $("recipe-list").innerHTML = state.recipes.map((recipe) => {
       const candidate = recipe.candidate;
-      const outcomes = state.outcomes.filter((o) => o.recipe_id === recipe.recipe_id);
+      const outcomes = outcomesByRecipe.get(recipe.recipe_id) || [];
       const source = labelFor(candidate.source_agent_id);
       const path = `<span>${esc(source)}</span><b>→</b>${recipe.canary_agent_id ? `<span>${esc(labelFor(recipe.canary_agent_id))}</span>` : "Awaiting canary"}${recipe.status === "validated" ? '<b>→</b><span>Eligible peers</span>' : ""}`;
       return `<article class="recipe"><div class="recipe-title-row"><h3>Quarantine invalid application cache</h3><span class="status-pill ${esc(recipe.status)}">${esc(recipe.status)}</span><span class="recipe-id">RECIPE ${esc(short(recipe.recipe_id))} / REV ${esc(recipe.revision)}</span></div><p class="recipe-description">${esc(candidate.explanation)}</p><div class="recipe-grid"><div class="proof-item"><span class="proof-label">DISCOVERY & PROPAGATION</span><div class="proof-value proof-path">${path}</div><div class="proof-note">${candidate.investigator === "local_model" ? "Local model interpretation" : "Deterministic observation"}</div></div><div class="proof-item"><span class="proof-label">ORIGIN EVIDENCE</span><div class="proof-value"><em>${esc(candidate.verification_count)}</em> successful probes</div><div class="proof-note">${safeArray(candidate.evidence_ids).length} local evidence references</div></div><div class="proof-item"><span class="proof-label">REPLAY OUTCOMES</span><div class="proof-value"><em>${esc(recipe.successes)}</em> verified <span class="slash">/</span> <span class="${recipe.failures ? "bad" : ""}">${esc(recipe.failures)}</span> failed</div><div class="proof-note">${outcomes.length} recorded ${outcomes.length === 1 ? "attempt" : "attempts"} · short observation window</div></div><div class="proof-item"><span class="proof-label">APPLICABILITY</span><div class="proof-value">${esc(platformLabel(candidate.environment.platform))} · ${esc(candidate.environment.app_version)}</div><div class="proof-note">${esc(candidate.issue_key)}</div></div></div><details><summary>Inspect verification results and evidence references</summary><div class="attempt-list">${outcomes.length ? outcomes.map((outcome) => `<div class="attempt"><strong>${esc(labelFor(outcome.agent_id))}</strong><span>${esc(outcome.checks_passed)}/${esc(outcome.checks_total)} probes</span><p>${esc(outcome.detail)}</p><span class="status-pill ${esc(outcome.status)}">${esc(outcome.status)}</span></div>`).join("") : '<p class="muted">No cross-device verification has completed yet.</p>'}</div><p class="proof-note">Local evidence IDs: ${safeArray(candidate.evidence_ids).map(esc).join(" · ") || "None supplied"}</p><p class="proof-note">Raw logs remain on the originating device. A successful short probe does not establish permanent resolution.</p></details></article>`;
@@ -240,6 +266,7 @@
   }
 
   function render() {
+    indexSnapshot();
     const agents = state.agents;
     const healthy = agents.filter((a) => health(a) === "healthy").length;
     const issues = agents.filter((a) => health(a) === "unhealthy").length;
