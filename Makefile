@@ -1,10 +1,11 @@
-.PHONY: help setup demo dev test test-dashboard lint typecheck format check
+.PHONY: help setup demo dev test test-dashboard test-browser lint typecheck format check
 help:
 	@echo 'setup       Install locked runtime and development dependencies'
 	@echo 'demo        Launch three isolated endpoints plus an incompatible device'
 	@echo 'dev         Start Uvicorn coordinator with source reload'
 	@echo 'check       Ruff lint, formatting, mypy, and tests'
 	@echo 'test-dashboard  Dashboard regression tests (requires Node 22+)'
+	@echo 'test-browser    Real Chromium dashboard tests (optional browser extra)'
 	@echo 'format      Apply Ruff fixes and formatting'
 
 setup:
@@ -21,6 +22,9 @@ test:
 
 test-dashboard:
 	node --test tests/dashboard.test.cjs
+
+test-browser:
+	uv run --frozen --extra dev --extra browser pytest -q browser_tests
 
 lint:
 	uv run ruff check .

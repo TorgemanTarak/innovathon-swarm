@@ -13,10 +13,30 @@
   let polling = false;
   let timer = null;
   let toastTimer = null;
+  let agentMarkup = null;
   let topologyKey = "";
   let recipeKey = "";
   let eventKey = "";
   const seenEvents = new Set();
+
+  // Guard the rendering boundary, not the full versioned wire contract.
+  // An invalid response must never replace the last usable fleet snapshot.
+  function validState(value) {
+    const record = (item) => item !== null && typeof item === "object" && !Array.isArray(item);
+    const strings = (item, keys) => record(item) && keys.every((key) => typeof item[key] === "string");
+    const environment = (item) => strings(item, ["platform", "app_version"]);
+    return record(value) && typeof value.paused === "boolean" && typeof value.demo_mode === "boolean"
+      && ["agents", "recipes", "outcomes", "events"].every((key) => Array.isArray(value[key]))
+      && value.agents.every((agent) => strings(agent, ["agent_id", "label"])
+        && ["healthy", "unhealthy", "unknown"].includes(agent.health) && environment(agent.environment))
+      && value.recipes.every((recipe) => strings(recipe, ["recipe_id", "status"])
+        && strings(recipe.candidate, ["source_agent_id", "incident_id", "explanation"])
+        && environment(recipe.candidate.environment)
+        && Array.isArray(recipe.candidate.evidence_ids)
+        && recipe.candidate.evidence_ids.every((id) => typeof id === "string"))
+      && value.outcomes.every((outcome) => strings(outcome, ["agent_id", "recipe_id", "incident_id", "status"]))
+      && value.events.every((event) => strings(event, ["event_id", "timestamp", "kind", "message"]));
+  }
 
   function timeLabel(value) {
     const date = new Date(value);
@@ -39,7 +59,7 @@
     if (!address) return `<span>${esc(short(agent.agent_id))}</span>`;
     const localHost = ["localhost", "127.0.0.1", "[::1]", "::1"].includes(new URL(address).hostname);
     if (agent.mode === "simulated" && localHost) {
-      return `<a href="${esc(address)}" target="_blank" rel="noopener noreferrer">Open app ↗</a>`;
+      return `<a data-app-agent="${esc(agent.agent_id)}" href="${esc(address)}" target="_blank" rel="noopener noreferrer">Open app ↗</a>`;
     }
     // A native agent's loopback address belongs to that endpoint, not the dashboard viewer.
     return `<span class="endpoint-address" title="Open this address on ${esc(agent.label)}"><span>ENDPOINT-LOCAL APP</span>${esc(address)}</span>`;
@@ -51,9 +71,12 @@
     if (body !== undefined) headers["Content-Type"] = "application/json";
     const response = await fetch(path, {method:body === undefined ? "GET" : "POST",headers,body:body === undefined ? undefined : JSON.stringify(body),signal:AbortSignal.timeout(8000),cache:"no-store"});
     let result;
-    try { result = await response.json(); } catch (_) { result = {}; }
+    try { result = await response.json(); } catch (_) {
+      if (response.ok) throw new Error("The coordinator returned invalid JSON.");
+      result = {};
+    }
     if (!response.ok) {
-      const error = new Error(typeof result.detail === "string" ? result.detail : `Coordinator returned HTTP ${response.status}`);
+      const error = new Error(typeof result?.detail === "string" ? result.detail : `Coordinator returned HTTP ${response.status}`);
       error.status = response.status;
       throw error;
     }
@@ -164,15 +187,19 @@
   }
 
   function renderAgents() {
-    if (!state.agents.length) {
-      $("agent-list").innerHTML = '<div class="empty-state">Endpoint cards will appear here when agents register.</div>';
-      return;
-    }
-    $("agent-list").innerHTML = state.agents.map((agent, index) => {
+    const markup = !state.agents.length ? '<div class="empty-state">Endpoint cards will appear here when agents register.</div>' : state.agents.map((agent, index) => {
       const current = health(agent);
       const detail = isStale(agent) ? "No recent heartbeat. Last received state is preserved." : (agent.detail || (current === "healthy" ? "Functional probe passed. Watching for changes." : "Waiting for a functional probe."));
       return `<article class="agent-card ${current}"><div class="agent-top"><span class="agent-monogram">${String(index + 1).padStart(2,"0")}</span><span class="status-pill ${current}">${isStale(agent) ? "Offline" : current === "unhealthy" ? "Issue detected" : current}</span></div><h3 class="agent-label" title="${esc(agent.label)}">${esc(agent.label)}</h3><div class="agent-meta">${esc(platformLabel(agent.environment?.platform))} <span>·</span> app ${esc(agent.environment?.app_version || "—")}</div><p class="agent-detail" title="${esc(detail)}">${esc(detail)}</p><div class="agent-foot"><span>${esc(roleFor(agent))}</span>${appAddress(agent)}</div></article>`;
     }).join("");
+    if (markup === agentMarkup) return;
+    agentMarkup = markup;
+    const list = $("agent-list");
+    const focusedAgent = list.contains(document.activeElement) ? document.activeElement?.dataset.appAgent : undefined;
+    list.innerHTML = markup;
+    if (focusedAgent !== undefined) {
+      [...list.querySelectorAll("a[data-app-agent]")].find((link) => link.dataset.appAgent === focusedAgent)?.focus({preventScroll:true});
+    }
   }
 
   function renderRecipes() {
@@ -243,7 +270,8 @@
     polling = true;
     try {
       const result = await api("/api/state");
-      state = {...result,agents:safeArray(result.agents),recipes:safeArray(result.recipes),outcomes:safeArray(result.outcomes),events:safeArray(result.events)};
+      if (!validState(result)) throw new Error("The coordinator returned an invalid fleet snapshot.");
+      state = result;
       setConnection(true);
       render();
       $("access-error").hidden = true;

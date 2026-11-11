@@ -6,6 +6,9 @@
 2. Open the coordinator at http://127.0.0.1:8765 and a demo app at http://127.0.0.1:8771.
 3. Confirm all four agents are online and healthy. D has app version 2.0.0; A/B/C have 1.0.0.
 4. Keep endpoint process logs under `.swarm/local/logs/` available for diagnosis.
+5. For repeatable Chromium coverage, follow the optional browser setup in README
+   and run `make test-browser`. This starts its own temporary fleet and leaves the
+   presentation fleet untouched.
 
 ## Main story (about two minutes)
 

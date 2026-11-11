@@ -38,36 +38,60 @@ function recipe(status = "validated") {
 
 async function dashboard(initial) {
   let current = initial;
+  let response = {ok: true, status: 200};
   const elements = Object.fromEntries([...markup.matchAll(/id="([^"]+)"/g)].map(([, id]) => [id, {
-    dataset: {}, value: "", innerHTML: "", textContent: "", hidden: false,
+    dataset: {}, value: "", textContent: "", hidden: false, children: [], markupWrites: 0,
     disabled: false, listeners: {}, classList: {toggle() {}},
     addEventListener(kind, callback) { this.listeners[kind] = callback; },
-    focus() {}, showModal() { this.open = true; }, close() { this.open = false; },
+    focus() { document.activeElement = this; },
+    contains(node) { return this.children.includes(node); },
+    querySelectorAll() { return this.children; },
+    showModal() { this.open = true; }, close() { this.open = false; },
   }]));
   const listeners = {};
+  const document = {
+    hidden: false, activeElement: null,
+    getElementById: (id) => elements[id],
+    addEventListener(kind, callback) { listeners[kind] = callback; },
+  };
+  // Model only link replacement/focus, not browser layout or DOM parsing.
+  for (const element of Object.values(elements)) {
+    let html = "";
+    Object.defineProperty(element, "innerHTML", {
+      get() { return html; },
+      set(value) {
+        html = value;
+        element.markupWrites++;
+        if (element.contains(document.activeElement)) document.activeElement = null;
+        element.children = [...value.matchAll(/data-app-agent="([^"]+)"/g)].map(([, id]) => ({
+          dataset: {appAgent: id}, focus() { document.activeElement = this; },
+        }));
+      },
+    });
+  }
   vm.runInNewContext(source, {
-    document: {
-      hidden: false,
-      getElementById: (id) => elements[id],
-      addEventListener(kind, callback) { listeners[kind] = callback; },
-    },
+    document,
     sessionStorage: {getItem() { return null; }},
     URL, AbortSignal, Date,
     setTimeout() { return 1; }, clearTimeout() {},
     async fetch(url) {
       assert.equal(url, "/api/state");
-      return {ok: true, async json() { return structuredClone(current); }};
+      return {...response, async json() {
+        if (response.malformed) throw new SyntaxError("Invalid JSON");
+        return structuredClone(current);
+      }};
     },
   });
   await flush();
   assert.equal(elements.connection.className, "connection live");
   return {
-    elements,
-    async refresh(value) {
+    elements, document,
+    async refresh(value, {malformed = false, connected = true} = {}) {
       current = value;
+      response = {ok: true, status: 200, malformed};
       listeners.visibilitychange();
       await flush();
-      assert.equal(elements.connection.className, "connection live");
+      assert.equal(elements.connection.className, connected ? "connection live" : "connection offline");
     },
   };
 }
@@ -161,5 +185,68 @@ test("empty, stale, read-only, native-link and escaped-label states remain usabl
   assert.equal(ui.elements["fault-button"].disabled, true);
   assert.match(ui.elements["agent-list"].innerHTML, /Offline/);
   assert.match(ui.elements["agent-list"].innerHTML, /&lt;img/);
-  assert.doesNotMatch(ui.elements["agent-list"].innerHTML, /<img|<a href/);
+  assert.doesNotMatch(ui.elements["agent-list"].innerHTML, /<img|<a\s/);
+});
+
+test("invalid snapshots preserve the last fleet and disable controls until recovery", async () => {
+  const state = snapshot();
+  state.agents = [agent()];
+  const ui = await dashboard(state);
+  const cards = ui.elements["agent-list"].innerHTML;
+  const invalid = [
+    null, [], {}, {...state, paused: "false"}, {...state, demo_mode: null},
+    {...state, agents: null}, {...state, recipes: {}}, {...state, outcomes: null}, {...state, events: {}},
+    {...state, agents: [null]}, {...state, agents: [{...agent(), label: 3}]},
+    {...state, agents: [{...agent(), health: '<img src=x>'}]},
+    {...state, agents: [{...agent(), environment: null}]},
+    {...state, recipes: [null]}, {...state, recipes: [{...recipe(), candidate: null}]},
+    {...state, recipes: [{...recipe(), candidate: {...recipe().candidate, environment: null}}]},
+    {...state, outcomes: [null]}, {...state, outcomes: [{agent_id: "a", status: {}}]},
+    {...state, events: [null]}, {...state, events: [{event_id: "event-1", kind: 42}]},
+  ];
+  for (const value of invalid) {
+    await ui.refresh(value, {connected: false});
+    assert.equal(ui.elements["agent-list"].innerHTML, cards);
+    assert.equal(ui.elements["metric-healthy"].textContent, 1);
+    assert.equal(ui.elements["error-banner"].hidden, false);
+    assert.match(ui.elements["snapshot-time"].textContent, /^Last snapshot/);
+    for (const id of ["fault-button", "repair-button", "pause-button", "reset-button"]) {
+      assert.equal(ui.elements[id].disabled, true);
+    }
+    await ui.refresh(state);
+    assert.equal(ui.elements["error-banner"].hidden, true);
+    assert.equal(ui.elements["fault-button"].disabled, false);
+  }
+  await ui.refresh(null, {malformed: true, connected: false});
+  assert.equal(ui.elements["agent-list"].innerHTML, cards);
+  assert.equal(ui.elements["metric-healthy"].textContent, 1);
+  assert.equal(ui.elements["fault-button"].disabled, true);
+  await ui.refresh(state);
+});
+
+test("heartbeat polls preserve app links and genuine card updates retain endpoint focus", async () => {
+  const state = snapshot();
+  state.agents = [agent(), agent("b")];
+  const ui = await dashboard(state);
+  const list = ui.elements["agent-list"];
+  const originalLink = list.children[1];
+  originalLink.focus();
+  const writes = list.markupWrites;
+  state.agents[1].last_seen = "2026-01-01T00:00:01Z";
+  await ui.refresh(state);
+  assert.equal(list.markupWrites, writes);
+  assert.equal(ui.document.activeElement, originalLink);
+
+  state.agents[1].health = "unhealthy";
+  state.agents.reverse();
+  await ui.refresh(state);
+  assert.equal(list.markupWrites, writes + 1);
+  assert.notEqual(ui.document.activeElement, originalLink);
+  assert.equal(ui.document.activeElement.dataset.appAgent, "b");
+  assert.match(list.innerHTML, /Issue detected/);
+
+  // If that endpoint disappears, do not move focus to a different app link.
+  state.agents = state.agents.filter((item) => item.agent_id !== "b");
+  await ui.refresh(state);
+  assert.equal(ui.document.activeElement, null);
 });
