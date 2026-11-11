@@ -70,6 +70,7 @@ make dev         # Uvicorn with source reload on localhost:8765
 make check       # Ruff lint + format check + mypy + pytest
 make format      # Apply Ruff fixes and formatting
 make test-dashboard # Dashboard regression tests (Node 22+, no npm install)
+make test-browser   # Real Chromium tests (optional setup below)
 ```
 
 `make dev` runs only the coordinator. Launch one or more `swarm node` commands in separate terminals against it. This mode uses `.swarm/dev-coordinator.sqlite`; the complete demo uses `.swarm/local/coordinator.sqlite`.
@@ -95,6 +96,27 @@ SWARM_DEMO_MODE=1 uv run uvicorn swarm.server:app \
 ```
 
 Interactive API docs: `http://127.0.0.1:8765/docs`. Protected API calls require the `X-Swarm-Token` header when `SWARM_TOKEN` is configured.
+
+### Real browser tests
+
+The Node dashboard tests use a simulated DOM. The separate Playwright suite launches
+real Chromium against isolated coordinator, app and agent processes. It drives the
+dashboard controls, checks recovery and incompatible-device exclusion, exercises
+pause/reset and failed-canary rollback, and verifies authentication and UI errors.
+Network interception is used to inject error responses; successful fleet scenarios
+use the real backend. API and filesystem assertions supplement the browser checks.
+
+```bash
+uv sync --frozen --extra dev --extra browser
+uv run --extra browser playwright install chromium
+make test-browser
+```
+
+On Linux, Chromium also needs its usual system libraries. To use an existing browser,
+set `SWARM_BROWSER_EXECUTABLE` to its executable path. Set `SWARM_BROWSER_ARTIFACTS`
+to a directory to retain screenshots and traces. The browser suite is opt-in and
+is separate from `make check`; the default demo still needs no browser automation
+dependency or browser download.
 
 ## Optional local model
 
