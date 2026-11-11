@@ -62,7 +62,7 @@
     if (!address) return `<span>${esc(short(agent.agent_id))}</span>`;
     const localHost = ["localhost", "127.0.0.1", "[::1]", "::1"].includes(new URL(address).hostname);
     if (agent.mode === "simulated" && localHost) {
-      return `<a data-app-agent="${esc(agent.agent_id)}" href="${esc(address)}" target="_blank" rel="noopener noreferrer">Open app ↗</a>`;
+      return `<a data-app-agent="${esc(agent.agent_id)}" href="${esc(address)}" target="_blank" rel="noopener noreferrer">Open app <svg class="external-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 12 12 4M4 4h8v8"/></svg></a>`;
     }
     // A native agent's loopback address belongs to that endpoint, not the dashboard viewer.
     return `<span class="endpoint-address" title="Open this address on ${esc(agent.label)}"><span>ENDPOINT-LOCAL APP</span>${esc(address)}</span>`;
@@ -124,7 +124,7 @@
     ["fault-button","repair-button","reset-button","failure-button","source-select","failure-select"].forEach((id) => { $(id).disabled = !demo; });
     $("pause-button").disabled = !enabled || !state;
     $("pause-label").textContent = state?.paused ? "Resume rollout" : "Pause rollout";
-    $("pause-icon").textContent = state?.paused ? "▷" : "Ⅱ";
+    $("pause-icon").innerHTML = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">${state?.paused ? '<path d="m5 3 8 5-8 5Z"/>' : '<path d="M5 3v10M11 3v10"/>'}</svg>`;
     if (state && !state.demo_mode) {
       $("demo-badge").textContent = "READ ONLY";
       $("control-description").textContent = "Demo mutations are disabled on this coordinator.";
@@ -199,17 +199,17 @@
     }
     const spacing = Math.min(250, 730 / Math.max(1, agents.length - 1));
     const center = 450;
-    const hubColor = paused ? "#f0b35a" : "#72e8c0";
+    const hubColor = paused ? "var(--amber)" : "var(--blue)";
     const nodes = agents.map((agent, index) => {
       const x = center + (index - (agents.length - 1) / 2) * spacing;
       const status = health(agent);
-      const color = status === "healthy" ? "#72e8c0" : status === "unhealthy" ? "#f0b35a" : "#61757f";
+      const color = status === "healthy" ? "var(--teal)" : status === "unhealthy" ? "var(--amber)" : "var(--muted)";
       const active = canaryAgents.has(agent.agent_id) && !paused;
       const line = `M450 102 C450 143 ${x} 132 ${x} 180`;
       const label = agent.label.length > 22 ? `${agent.label.slice(0,20)}…` : agent.label;
-      return `<path d="${line}" fill="none" stroke="${color}" stroke-opacity=".18" stroke-width="1.4"/><path d="${line}" fill="none" stroke="${color}" stroke-opacity="${active ? ".7" : ".28"}" stroke-width="1.4" stroke-dasharray="${active ? "4 12" : "2 9"}" ${active ? 'class="flow-line"' : ""}/><circle cx="${x}" cy="195" r="25" fill="#101b1c" stroke="${color}" stroke-opacity=".45"/><circle cx="${x}" cy="195" r="32" fill="none" stroke="${color}" stroke-opacity=".07"/><g transform="translate(${x - 10} 188)" fill="none" stroke="${color}" stroke-width="1.3"><rect x="1" y="0" width="18" height="12" rx="1.7"/><path d="M-1 15h22M7 12v3M13 12v3"/></g><circle cx="${x + 19}" cy="177" r="4" fill="${color}" stroke="#10191b" stroke-width="2"/><text x="${x}" y="241" fill="#c7d7d0" text-anchor="middle" font-size="10">${esc(label)}</text><text x="${x}" y="259" fill="${color}" opacity=".7" text-anchor="middle" font-size="7.5" letter-spacing=".5">${esc(roleFor(agent).toUpperCase())}</text>`;
+      return `<path d="${line}" fill="none" stroke="${color}" stroke-opacity=".18" stroke-width="1.4"/><path d="${line}" fill="none" stroke="${color}" stroke-opacity="${active ? ".7" : ".28"}" stroke-width="1.4" stroke-dasharray="${active ? "4 12" : "2 9"}" ${active ? 'class="flow-line"' : ""}/><circle cx="${x}" cy="195" r="25" fill="var(--panel)" stroke="${color}" stroke-opacity=".45"/><circle cx="${x}" cy="195" r="32" fill="none" stroke="${color}" stroke-opacity=".07"/><g transform="translate(${x - 10} 188)" fill="none" stroke="${color}" stroke-width="1.3"><rect x="1" y="0" width="18" height="12" rx="1.7"/><path d="M-1 15h22M7 12v3M13 12v3"/></g><circle cx="${x + 19}" cy="177" r="4" fill="${color}" stroke="var(--panel)" stroke-width="2"/><text x="${x}" y="241" fill="var(--text)" text-anchor="middle" font-size="12">${esc(label)}</text><text x="${x}" y="259" fill="${color}" text-anchor="middle" font-size="10" letter-spacing=".5">${esc(roleFor(agent).toUpperCase())}</text>`;
     }).join("");
-    $("topology").innerHTML = `<svg class="network-svg" viewBox="0 0 900 285" role="img" aria-label="${esc(`${agents.length} of ${total} registered endpoints shown. ${online} endpoints have a recent heartbeat. ${status.toLowerCase()}.`)}"><defs><radialGradient id="hub-halo"><stop stop-color="${hubColor}" stop-opacity=".11"/><stop offset="1" stop-color="${hubColor}" stop-opacity="0"/></radialGradient></defs><circle cx="450" cy="65" r="85" fill="url(#hub-halo)"/>${nodes}<circle cx="450" cy="65" r="43" fill="none" stroke="${hubColor}" stroke-opacity=".12" stroke-dasharray="2 6"/><circle cx="450" cy="65" r="34" fill="#11251f" stroke="${hubColor}" stroke-opacity=".45"/><path d="m450 44 18 10.5v21L450 86l-18-10.5v-21L450 44Z" fill="none" stroke="${hubColor}" stroke-width="1.2"/><path d="m450 52 11 6.5v13L450 78l-11-6.5v-13L450 52Z" fill="${hubColor}" opacity=".85"/><text x="510" y="61" fill="#c5d7cc" font-size="10" letter-spacing="1">SHARED FIX REGISTRY</text><text x="510" y="78" fill="#6b9382" font-size="8">${state.recipes.length} ${state.recipes.length === 1 ? "recipe" : "recipes"} · evidence before execution</text></svg>`;
+    $("topology").innerHTML = `<svg class="network-svg" viewBox="0 0 900 285" role="img" aria-label="${esc(`${agents.length} of ${total} registered endpoints shown. ${online} endpoints have a recent heartbeat. ${status.toLowerCase()}.`)}"><defs><radialGradient id="hub-halo"><stop stop-color="${hubColor}" stop-opacity=".11"/><stop offset="1" stop-color="${hubColor}" stop-opacity="0"/></radialGradient></defs><circle cx="450" cy="65" r="85" fill="url(#hub-halo)"/>${nodes}<circle cx="450" cy="65" r="43" fill="none" stroke="${hubColor}" stroke-opacity=".12" stroke-dasharray="2 6"/><circle cx="450" cy="65" r="34" fill="var(--blue-tint)" stroke="${hubColor}" stroke-opacity=".45"/><path d="m450 44 18 10.5v21L450 86l-18-10.5v-21L450 44Z" fill="none" stroke="${hubColor}" stroke-width="1.2"/><path d="m450 52 11 6.5v13L450 78l-11-6.5v-13L450 52Z" fill="${hubColor}" opacity=".85"/><text x="510" y="61" fill="var(--text)" font-size="12" letter-spacing=".5">SHARED FIX REGISTRY</text><text x="510" y="80" fill="var(--muted)" font-size="10">${state.recipes.length} ${state.recipes.length === 1 ? "recipe" : "recipes"} · evidence before execution</text></svg>`;
   }
 
   function renderAgents() {

@@ -106,8 +106,50 @@ _HTML = r"""<!doctype html>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Workspace · SWARM demo</title>
 <style>
-:root{color-scheme:dark;--bg:#101817;--panel:#192321;--line:#34413b;--ink:#edf3ec;--muted:#9cafa5;--mint:#b4f9b1;--red:#ffb8ae}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}button,input{font:inherit}button{cursor:pointer}button:focus-visible,a:focus-visible,input:focus-visible{outline:3px solid var(--mint);outline-offset:5px}header{max-width:1080px;margin:auto;padding:28px 32px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line)}.brand{display:flex;gap:12px;align-items:center;font-size:20px;font-weight:650;letter-spacing:-.6px}.mark{display:grid;place-items:center;width:32px;height:32px;background:var(--mint);color:#173320;border-radius:10px}.tag,.eyebrow{font:11px/1.6 ui-monospace,SFMono-Regular,monospace;text-transform:uppercase;letter-spacing:1.7px}.tag{color:var(--muted)}main{max-width:1080px;margin:auto;padding:64px 32px}.eyebrow{color:var(--mint);margin:0 0 14px}h1{font-size:clamp(34px,5vw,58px);line-height:1.05;font-weight:500;letter-spacing:-2px;margin:0 0 20px}.intro{color:var(--muted);max-width:530px;margin:0 0 34px}.toolbar{display:flex;gap:22px;align-items:center;flex-wrap:wrap}button{border:0;background:var(--mint);color:#122819;padding:12px 23px;border-radius:8px;font-weight:650}button:disabled{opacity:.6;cursor:wait}label{display:flex;gap:8px;align-items:center;color:var(--muted);font-size:13px}input{accent-color:var(--mint)}.status{display:flex;gap:11px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:15px 18px;margin:32px 0 24px}.dot{height:8px;width:8px;border-radius:50%;background:var(--muted);flex:none}.status[data-state=healthy] .dot{background:var(--mint);box-shadow:0 0 16px #b4f9b155}.status[data-state=error]{border-color:#7e4c43;background:#2a211e}.status[data-state=error] .dot{background:var(--red)}.status strong{font-size:13px;font-weight:550}.status span:last-child{margin-left:auto;color:var(--muted);font:11px ui-monospace,monospace}.projects{display:grid;grid-template-columns:repeat(auto-fit,minmax(235px,1fr));gap:16px;min-height:150px}.project{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:24px}.project .icon{font-size:22px;color:var(--mint);margin-bottom:22px}.project h2{margin:0 0 7px;font-size:18px;font-weight:550;letter-spacing:-.4px}.project p{margin:0;color:var(--muted);font-size:13px}.empty{padding:30px 0;color:var(--muted);max-width:600px}.empty h2{color:var(--red);font-size:23px;font-weight:500;margin:0 0 8px}.empty p{margin:0}.details{border-top:1px solid var(--line);margin-top:42px;padding-top:22px;display:grid;grid-template-columns:1fr 1fr;gap:24px;color:var(--muted);font-size:12px}.details strong{display:block;color:var(--ink);font-size:12px;font-weight:500;margin-bottom:5px}.mono{font-family:ui-monospace,SFMono-Regular,monospace}footer{max-width:1080px;margin:0 auto;padding:20px 32px 32px;color:var(--muted);font-size:11px}@media(max-width:600px){header{padding:20px}.tag{font-size:9px;letter-spacing:.6px}main{padding:40px 20px}.details{grid-template-columns:1fr}.status span:last-child{display:none}}
+:root{color-scheme:light;--bg:#EEF3F7;--panel:#fff;--line:#D8DCEA;--ink:#221F20;--muted:#566579;--blue:#1046A8;--teal:#00B1A9;--success:#00776f;--papaya:#FF7461;--error:#a6382b}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 'Proxima Nova','Segoe UI',Arial,sans-serif}
+button,input{font:inherit}
+button{cursor:pointer}
+button:focus-visible,a:focus-visible,input:focus-visible{outline:3px solid #3194F7;outline-offset:3px}
+header{padding:18px max(32px,calc((100% - 1016px)/2));display:flex;align-items:center;justify-content:space-between;gap:16px;background:#0C5497;color:#fff;border-bottom:1px solid #1046A8}
+.brand{display:flex;gap:10px;align-items:center;font-size:20px;font-weight:600}
+.mark{display:grid;place-items:center;width:32px;height:32px;color:#fff;border:1px solid #ffffff80;border-radius:4px}
+.tag,.eyebrow{font-size:11px;font-weight:600;letter-spacing:.8px;text-transform:uppercase}
+.tag{color:#fff}
+main{max-width:1080px;margin:auto;padding:36px 32px}
+.eyebrow{color:var(--blue);margin:0 0 8px}
+h1{font-size:clamp(28px,4vw,38px);line-height:1.2;font-weight:600;letter-spacing:-.6px;margin:0 0 16px}
+.intro{color:var(--muted);max-width:600px;margin:0 0 24px}
+.toolbar{display:flex;gap:22px;align-items:center;flex-wrap:wrap}
+button{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--blue);background:var(--blue);color:#fff;padding:9px 18px;border-radius:4px;font-weight:600}
+button:hover:not(:disabled){background:#0B3580;border-color:#0B3580}
+button:disabled{opacity:.6;cursor:wait}
+label{display:flex;gap:8px;align-items:center;color:var(--muted);font-size:13px}
+input{accent-color:var(--blue);width:16px;height:16px}
+.status{display:flex;gap:11px;align-items:center;background:var(--panel);border:1px solid var(--line);border-left:3px solid #647893;border-radius:4px;padding:13px 16px;margin:24px 0 20px}
+.dot{height:8px;width:8px;border-radius:50%;background:var(--muted);flex:none}
+.status[data-state=healthy]{border-left-color:var(--teal);background:#F1FAF9}
+.status[data-state=healthy] .dot{background:var(--teal)}
+.status[data-state=healthy] strong{color:var(--success)}
+.status[data-state=error]{border-left-color:var(--papaya);background:#FFF4F1}
+.status[data-state=error] .dot{background:var(--papaya)}
+.status[data-state=error] strong{color:var(--error)}
+.status strong{font-size:13px;font-weight:600}
+.status span:last-child{margin-left:auto;color:var(--muted);font-size:11px;white-space:nowrap}
+.projects{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,235px),1fr));gap:16px;min-height:150px}
+.project{background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:24px}
+.project .icon{display:grid;place-items:center;width:36px;height:36px;font-size:22px;color:var(--blue);background:#EEF5FC;border-radius:4px;margin-bottom:20px}
+.project h2{margin:0 0 7px;font-size:18px;font-weight:600;letter-spacing:-.2px}
+.project p{margin:0;color:var(--muted);font-size:13px}
+.empty{padding:24px;background:var(--panel);border:1px solid var(--line);border-radius:4px;color:var(--muted);grid-column:1/-1;margin:0}
+.empty h2{color:var(--error);font-size:22px;font-weight:600;margin:0 0 8px}
+.empty p{margin:0}
+.details{border-top:1px solid var(--line);margin-top:32px;padding-top:20px;display:grid;grid-template-columns:1fr 1fr;gap:24px;color:var(--muted);font-size:12px}
+.details strong{display:block;color:var(--ink);font-size:12px;font-weight:600;margin-bottom:5px}
+.mono{font-family:ui-monospace,SFMono-Regular,monospace}
+footer{max-width:1080px;margin:0 auto;padding:12px 32px 28px;color:var(--muted);font-size:11px}
+@media(max-width:600px){header{padding:18px 20px;flex-wrap:wrap;gap:8px}.tag{font-size:10px;letter-spacing:.4px}main{padding:28px 20px}.details{grid-template-columns:1fr}.status span:last-child{display:none}footer{padding:12px 20px 24px}}
 </style>
 </head>
 <body>
@@ -116,7 +158,7 @@ _HTML = r"""<!doctype html>
 <p class="eyebrow">Your work, in one place</p>
 <h1>Make room for<br>your next idea.</h1>
 <p class="intro">Load your projects from this device's workspace cache. Every request below runs the real application operation.</p>
-<div class="toolbar"><button id="load" type="button">Load workspace <span aria-hidden="true">↗</span></button><label><input id="auto" type="checkbox" checked> Refresh every 3 seconds</label></div>
+<div class="toolbar"><button id="load" type="button">Load workspace <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 12 12 4M4 4h8v8"/></svg></button><label><input id="auto" type="checkbox" checked> Refresh every 3 seconds</label></div>
 <div id="status" class="status" data-state="unknown" role="status" aria-live="polite"><span class="dot" aria-hidden="true"></span><strong id="status-text">Waiting for first request</strong><span id="request-time">—</span></div>
 <div id="projects" class="projects" aria-live="polite"><p class="empty">Projects will appear when the workspace loads.</p></div>
 <div class="details"><div><strong>Functional health check</strong><span class="mono">GET /work</span> reads and validates the cache. A live process can still return a failed operation.</div><div><strong>Controlled failure, real recovery</strong>The SWARM agent watches this app. Renaming its corrupted cache allows it to regenerate on the next request.</div></div>
