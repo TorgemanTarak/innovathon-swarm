@@ -70,6 +70,11 @@ class EndpointAgent:
             demo_url=config.demo_url,
         )
         self.journal = Journal(scoped_path(self.root, "journal.sqlite"))
+        try:
+            self.journal.bind_agent(config.agent_id)
+        except Exception:
+            self.journal.close()
+            raise
         self._owns_client = client is None
         self.client = client or httpx.AsyncClient(timeout=5.0, trust_env=False)
         self._registered = False

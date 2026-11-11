@@ -13,7 +13,6 @@ Prerequisites: Python 3.11+ and [uv](https://docs.astral.sh/uv/getting-started/i
 ```bash
 git clone https://github.com/TorgemanTarak/innovathon-swarm.git
 cd innovathon-swarm
-git switch codex/swarm-foundation
 uv sync --frozen --extra dev
 uv run swarm demo --include-incompatible
 ```
@@ -39,7 +38,7 @@ Use each app's **Load workspace** operation to see the fault and recovery. `/hea
 
 ## Run on teammates' Macs
 
-Each teammate checks out this branch and runs `uv sync --frozen --extra dev`.
+Each teammate clones the repository and runs `uv sync --frozen --extra dev`.
 
 On the coordinator Mac, choose a shared demo token and export it. The following generates a token in your own shell; distribute it privately to the participating teammates:
 
@@ -58,7 +57,7 @@ uv run swarm node \
   --app-port 8771
 ```
 
-Use a unique `--id` on each Mac. Enter the token in the dashboard's **Connection** dialog. `node` starts both the app and the endpoint agent. Data directories must be empty on first use; SWARM creates a marker and only modifies its own known app resources. `~/...` paths work.
+Use a unique `--id` on each Mac. Each data directory stays bound to that endpoint ID; choose a new directory if you change `--id`. Enter the token in the dashboard's **Connection** dialog. `node` starts both the app and the endpoint agent. Data directories must be empty on first use; SWARM creates a marker and only modifies its own known app resources. `~/...` paths work.
 
 Check LAN reachability early: office Wi-Fi isolation and host firewalls can block direct laptop connections. The local rehearsal is the fallback. The shared token is a trusted-team demo mechanism; use this only on an appropriate private network. TLS, per-device identities and production enrollment are future work.
 

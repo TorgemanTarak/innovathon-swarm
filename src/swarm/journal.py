@@ -33,6 +33,34 @@ class Journal:
         """)
         self.connection.commit()
 
+    def bind_agent(self, agent_id: str) -> None:
+        """Keep one endpoint identity attached to this directory across resets."""
+        with self.connection:
+            self.connection.execute("BEGIN IMMEDIATE")
+            row = self.connection.execute(
+                "SELECT value FROM state WHERE key='owner_agent_id'"
+            ).fetchone()
+            owners = {json.loads(row[0])} if row else set()
+            if not owners:
+                # Journals created before owner binding may still carry an active
+                # incident or durable repair attempts identifying their endpoint.
+                incident = self.get("incident")
+                if incident:
+                    owners.add(incident["agent_id"])
+                owners.update(
+                    json.loads(item[0])["agent_id"]
+                    for item in self.connection.execute("SELECT payload FROM attempts")
+                )
+            if owners and owners != {agent_id}:
+                raise ValueError(
+                    f"This SWARM data directory belongs to endpoint {', '.join(sorted(owners))!r}; "
+                    "reuse its --id or choose a new --data-dir"
+                )
+            self.connection.execute(
+                "INSERT OR REPLACE INTO state VALUES ('owner_agent_id', ?)",
+                (json.dumps(agent_id),),
+            )
+
     def observe(self, kind: str, **data: Any) -> str:
         identity = new_id()
         with self.connection:
@@ -132,7 +160,7 @@ class Journal:
     def clear_runtime(self) -> None:
         # Preserve observations/attempt dedupe/command acknowledgements as an audit trail.
         with self.connection:
-            self.connection.execute("DELETE FROM state")
+            self.connection.execute("DELETE FROM state WHERE key != 'owner_agent_id'")
             self.connection.execute("DELETE FROM outbox")
 
     def close(self) -> None:

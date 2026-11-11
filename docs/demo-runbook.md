@@ -38,6 +38,7 @@ Use the LAN instructions in README. Every endpoint needs a unique ID and its own
 |---|---|
 | Process exits immediately | Read the corresponding `.swarm/.../logs/` file; check port conflicts and Python dependency installation |
 | Refuses data directory | Use an empty directory or an existing SWARM-marked directory; do not point at real app caches |
+| Data directory belongs to another endpoint | Keep the original `--id`, or choose a new data directory for the new identity |
 | Dashboard has no endpoints | Check coordinator URL, shared token and laptop connectivity |
 | API returns 401 | Enter the same token in the dashboard and export it on the agent |
 | Agent says unknown | The app may be unreachable; `/health` and `/work` are different checks |

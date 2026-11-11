@@ -32,7 +32,7 @@ The optional local-model adapter narrates this evidence. It cannot alter the act
 
 Recipes contain an allowlisted action ID, an exact environment, originating evidence IDs and a revision. They contain no executable scripts or arbitrary paths. Endpoints recheck the current incident, environment, cache state and failing operation immediately before action.
 
-`quarantine_demo_cache` atomically moves the known cache into a local quarantine directory. The app regenerates absent cache. Three consecutive successful functional operations produce a verified outcome. Failure restores the prior cache and pauses the recipe. Rollback is specific to this action; other action classes need their own implementations.
+`quarantine_demo_cache` atomically moves the known cache into a local quarantine directory. The app regenerates absent cache. Three consecutive successful functional operations produce a verified outcome. Failure restores the prior cache and pauses the recipe, unless the current cache has changed beyond the app's expected regeneration. In that case SWARM preserves the current cache and quarantined original for inspection rather than overwriting a concurrent human repair. Rollback is specific to this action; other action classes need their own implementations.
 
 Demo filesystem helpers reject unmarked nonempty directories, traversal and symlink resources. They are a containment guard for controlled app files, not a general OS sandbox or a defense against an actively malicious privileged local user.
 
@@ -40,7 +40,7 @@ Demo filesystem helpers reject unmarked nonempty directories, traversal and syml
 
 The coordinator uses SQLite transactions to admit one canary per issue/action/environment cohort. Matching followers become eligible only after a verified canary outcome. Incompatible devices receive no assignment. Failed or inconclusive results pause the recipe; global resume does not silently reactivate it.
 
-Assignments have IDs, deadlines and terminal outcomes. Duplicate submissions cannot inflate evidence counts. The local journal claims an attempt before mutation; after response loss it resends the stored outcome rather than applying the action again. An agent interrupted during a repair reports inconclusive instead of blindly repeating it. Inspect its quarantined file when recovering such an interruption.
+Assignments have IDs, deadlines and terminal outcomes. Duplicate submissions cannot inflate evidence counts. The local journal is bound to its endpoint ID, including across demo resets. The local journal claims an attempt before mutation; after response loss it resends the stored outcome rather than applying the action again. An agent interrupted during a repair reports inconclusive instead of blindly repeating it. Inspect its quarantined file when recovering such an interruption.
 
 Assignment timeout defaults to 120 seconds; an unconfirmed canary pauses the recipe. Global pause prevents new work delivery, including pending work not yet picked up. An action already running may finish. This is not instant remote cancellation.
 

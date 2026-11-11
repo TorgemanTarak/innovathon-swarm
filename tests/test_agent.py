@@ -227,6 +227,56 @@ async def test_environment_change_reports_new_incident_after_restart(endpoint):
         await restarted.close()
 
 
+async def test_healthy_directory_rejects_another_endpoint_identity(endpoint):
+    agent, _ = endpoint
+    await agent.tick()
+    before = cache_path(agent.root).read_bytes()
+    with pytest.raises(ValueError, match="belongs to endpoint.*new --data-dir"):
+        EndpointAgent(replace(agent.config, agent_id="someone-else"), client=agent.client)
+    assert cache_path(agent.root).read_bytes() == before
+    assert agent.journal.get("owner_agent_id") == agent.config.agent_id
+
+
+async def test_owner_binding_survives_reset_and_same_identity_restart(endpoint):
+    agent, _ = endpoint
+    await break_app(agent)
+    await agent._command(DemoCommand(kind="reset"))
+    assert agent.journal.get("owner_agent_id") == agent.config.agent_id
+    assert agent.journal.get("incident") is None
+    await agent.close()
+    restarted = EndpointAgent(agent.config, client=agent.client)
+    try:
+        await restarted.tick()
+        assert restarted.journal.get("owner_agent_id") == agent.config.agent_id
+        with pytest.raises(ValueError, match="belongs to endpoint"):
+            EndpointAgent(replace(agent.config, agent_id="someone-else"), client=agent.client)
+    finally:
+        await restarted.close()
+
+
+@pytest.mark.parametrize("legacy_evidence", ["incident", "attempt"])
+async def test_legacy_journal_identity_checked_before_attempt_recovery(endpoint, legacy_evidence):
+    agent, _ = endpoint
+    incident = await break_app(agent)
+    assignment = assignment_for(agent, incident)
+    if legacy_evidence == "attempt":
+        agent.journal.claim_attempt(assignment.assignment_id, assignment.model_dump())
+        agent.journal.set("incident", None)
+    with agent.journal.connection:
+        agent.journal.connection.execute("DELETE FROM state WHERE key='owner_agent_id'")
+    with pytest.raises(ValueError, match="belongs to endpoint"):
+        EndpointAgent(replace(agent.config, agent_id="someone-else"), client=agent.client)
+    assert agent.journal.get("owner_agent_id") is None
+    if legacy_evidence == "attempt":
+        assert agent.journal.attempt(assignment.assignment_id)[0] == "executing"
+    await agent.close()
+    restarted = EndpointAgent(agent.config, client=agent.client)
+    try:
+        assert restarted.journal.get("owner_agent_id") == agent.config.agent_id
+    finally:
+        await restarted.close()
+
+
 async def test_demo_reset_discards_stale_pending_deliveries_and_incident(endpoint):
     agent, hub = endpoint
     incident = await break_app(agent)
@@ -322,5 +372,44 @@ async def test_manual_repair_during_execution_probe_is_preserved(tmp_path):
             assert "changed during" in outcome["detail"]
             assert cache_path(root).read_bytes() == restored
             assert not list((root / "quarantine").iterdir())
+        finally:
+            await agent.close()
+
+
+async def test_manual_cache_change_during_failed_verification_is_not_rolled_back(tmp_path):
+    root = tmp_path / "inflight-verification-device"
+    restored = b'{"schema":1,"projects":[{"name":"Human restored project"}]}'
+
+    class RepairDuringVerificationTransport(HubTransport):
+        async def handle_async_request(self, request):
+            response = await super().handle_async_request(request)
+            if request.url.host == "demo" and (root / ".fail-verification").exists():
+                # The operation failed, then a human wrote useful content while
+                # that failure response was still in flight back to the agent.
+                write_cache(root, restored)
+            return response
+
+    hub = RepairDuringVerificationTransport(root)
+    async with httpx.AsyncClient(transport=hub) as client:
+        agent = EndpointAgent(
+            AgentConfig("mac-b", "Mac B", root, "http://hub", "http://demo", interval=0.001),
+            client=client,
+        )
+        try:
+            incident = await break_app(agent)
+            corrupt = cache_path(root).read_bytes()
+            assignment = assignment_for(agent, incident)
+            hub.work.assignment = assignment
+            agent.journal.set("fail_next_verification", True)
+            await agent.tick()
+            outcome = hub.payloads("/api/outcomes")[-1]
+            assert outcome["status"] == "failed"
+            assert "rollback skipped" in outcome["detail"]
+            assert "inspect endpoint" in outcome["detail"]
+            assert cache_path(root).read_bytes() == restored
+            assert (
+                root / "quarantine" / f"{assignment.assignment_id}.json"
+            ).read_bytes() == corrupt
+            assert not (root / ".fail-verification").exists()
         finally:
             await agent.close()

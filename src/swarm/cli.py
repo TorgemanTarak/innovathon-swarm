@@ -102,10 +102,10 @@ def _agent_args(args: argparse.Namespace, *, demo_url: str, mode: str = "native"
         mode,
     ]
     # Credentials remain in the process environment, never command-line arguments or URLs.
-    if args.llm_base_url:
-        result += ["--llm-base-url", args.llm_base_url]
-    if args.llm_model:
-        result += ["--llm-model", args.llm_model]
+    # Explicit empty values override inherited parser defaults for rehearsal
+    # peers whose local-model narration was deliberately disabled by the parent.
+    result += ["--llm-base-url", args.llm_base_url or ""]
+    result += ["--llm-model", args.llm_model or ""]
     return result
 
 

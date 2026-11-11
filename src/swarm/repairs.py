@@ -196,6 +196,23 @@ def rollback_cache(root: Path | str, backup: Path) -> None:
     target = cache_path(base)
     if not source.is_file():
         raise UnsafeDemoPath("Rollback backup is missing")
+    # Verification can await network responses while a person edits the cache.
+    # Only replace the absent cache or the app's known regenerated default.
+    # Keep both the new content and original quarantine if ownership is unclear.
+    try:
+        current = _read_cache(base)
+    except FileNotFoundError:
+        pass
+    else:
+        try:
+            regenerated = _validate_cache(current) == DEFAULT_CACHE
+        except InvalidCache:
+            regenerated = False
+        if not regenerated:
+            raise UnsafeDemoPath(
+                "Cache changed during repair; rollback skipped to preserve current cache "
+                "and quarantine backup; inspect endpoint"
+            )
     os.replace(source, target)
 
 
