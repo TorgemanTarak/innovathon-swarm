@@ -71,6 +71,11 @@ class Registry:
                 CREATE TABLE IF NOT EXISTS commands (
                     id TEXT PRIMARY KEY, agent_id TEXT NOT NULL, data TEXT NOT NULL, ack TEXT
                 );
+                CREATE INDEX IF NOT EXISTS commands_agent ON commands (agent_id);
+                CREATE INDEX IF NOT EXISTS assignments_pending_expiry
+                    ON assignments (expires_at) WHERE state='pending';
+                CREATE INDEX IF NOT EXISTS assignments_pending_agent
+                    ON assignments (agent_id) WHERE state='pending';
                 CREATE TABLE IF NOT EXISTS events (seq INTEGER PRIMARY KEY AUTOINCREMENT, data TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
                 INSERT OR IGNORE INTO meta (key,value) VALUES ('paused','false');

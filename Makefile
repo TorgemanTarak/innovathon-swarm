@@ -1,4 +1,4 @@
-.PHONY: help setup demo dev test test-dashboard test-browser lint typecheck format check
+.PHONY: help setup demo dev test test-dashboard test-browser benchmark-fleet lint typecheck format check
 help:
 	@echo 'setup       Install locked runtime and development dependencies'
 	@echo 'demo        Launch three isolated endpoints plus an incompatible device'
@@ -6,6 +6,7 @@ help:
 	@echo 'check       Ruff lint, formatting, mypy, and tests'
 	@echo 'test-dashboard  Dashboard regression tests (requires Node 22+)'
 	@echo 'test-browser    Real Chromium dashboard tests (optional browser extra)'
+	@echo 'benchmark-fleet Measure coordinator HTTP with synthetic peers'
 	@echo 'format      Apply Ruff fixes and formatting'
 
 setup:
@@ -25,6 +26,9 @@ test-dashboard:
 
 test-browser:
 	uv run --frozen --extra dev --extra browser pytest -q browser_tests
+
+benchmark-fleet:
+	uv run --frozen scripts/benchmark_fleet.py --output .swarm/benchmarks/fleet.json
 
 lint:
 	uv run ruff check .

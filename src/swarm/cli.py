@@ -266,6 +266,12 @@ def parser() -> argparse.ArgumentParser:
         s.add_argument("--data-dir", required=True)
     status = sub.add_parser("status", help="Print the current fleet snapshot")
     status.add_argument("--coordinator", default="http://127.0.0.1:8765")
+    status.add_argument(
+        "--expect-agents",
+        nargs="+",
+        metavar="ID",
+        help="Exit unsuccessfully if any listed endpoint is missing or has no recent heartbeat",
+    )
     return p
 
 
@@ -333,7 +339,22 @@ def main(argv: list[str] | None = None) -> None:
                 trust_env=False,
             )
             response.raise_for_status()
-            print(json.dumps(response.json(), indent=2))
+            snapshot = response.json()
+            print(json.dumps(snapshot, indent=2))
+            if args.expect_agents:
+                agents = {agent["agent_id"]: agent for agent in snapshot["agents"]}
+                missing = [name for name in args.expect_agents if name not in agents]
+                offline = [
+                    name
+                    for name in args.expect_agents
+                    if name in agents and not agents[name]["online"]
+                ]
+                if missing or offline:
+                    raise RuntimeError(
+                        "Expected fleet is not fully online. "
+                        f"Missing: {', '.join(missing) or 'none'}. "
+                        f"Offline: {', '.join(offline) or 'none'}."
+                    )
     except KeyboardInterrupt:
         pass
     except (ValueError, OSError, RuntimeError, httpx.HTTPError) as exc:

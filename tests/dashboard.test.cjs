@@ -250,3 +250,26 @@ test("heartbeat polls preserve app links and genuine card updates retain endpoin
   await ui.refresh(state);
   assert.equal(ui.document.activeElement, null);
 });
+
+test("membership distinguishes connectivity from app health and labels the topology sample", async () => {
+  const state = snapshot();
+  const ui = await dashboard(state);
+  assert.equal(ui.elements["membership-status"].textContent, "0 online · 0 offline · 0 registered");
+  state.agents = Array.from({length: 8}, (_, i) => agent(`endpoint-${i}`));
+  state.agents[0].health = "unhealthy";
+  state.agents[7].online = false;
+  await ui.refresh(state);
+  assert.equal(ui.elements["membership-status"].textContent, "7 online · 1 offline · 8 registered");
+  assert.equal(ui.elements["metric-healthy"].textContent, 6);
+  assert.equal(ui.elements["topology-scope"].textContent, "Showing 6 of 8 endpoints");
+  assert.match(ui.elements.topology.innerHTML, /6 of 8 registered endpoints shown/);
+  // A device outside the six-node diagram must still change the complete fleet count.
+  state.agents[7].online = true;
+  await ui.refresh(state);
+  assert.equal(ui.elements["membership-status"].textContent, "8 online · 0 offline · 8 registered");
+  assert.match(ui.elements.topology.innerHTML, /8 endpoints have a recent heartbeat/);
+  await ui.refresh(null, {malformed: true, connected: false});
+  assert.equal(ui.elements["membership-status"].textContent, "Last snapshot · 8 online · 0 offline · 8 registered");
+  await ui.refresh(state);
+  assert.equal(ui.elements["membership-status"].textContent, "8 online · 0 offline · 8 registered");
+});
