@@ -196,4 +196,6 @@ Raw application logs and cache contents stay at the endpoint. The registry recei
 - `src/swarm/web/` — dependency-free dashboard.
 - `tests/` — policy, endpoint, filesystem, model-adapter and process integration tests.
 
+The UI follows [Nexthink visual references](docs/design.md), with local assets and no remote font dependency.
+
 See [architecture](docs/architecture.md), [demo runbook](docs/demo-runbook.md), and [next steps](docs/roadmap.md).
