@@ -128,6 +128,18 @@ class Registry:
     def _paused(db: sqlite3.Connection) -> bool:
         return json.loads(db.execute("SELECT value FROM meta WHERE key='paused'").fetchone()[0])
 
+    @staticmethod
+    def _require_reset_complete(db: sqlite3.Connection, agent_id: str) -> None:
+        # A reset may arrive while an endpoint is still finishing its previous tick.
+        # Its outbox must not repopulate the registry before the endpoint has cleared
+        # its local state and acknowledged the reset command.
+        rows = db.execute("SELECT data,ack FROM commands WHERE agent_id=?", (agent_id,))
+        for row in rows:
+            if json.loads(row["data"])["kind"] == "reset" and (
+                row["ack"] is None or not json.loads(row["ack"])["success"]
+            ):
+                raise RegistryError(409, "Endpoint reset is pending; discard pre-reset evidence")
+
     def register(self, registration: Registration) -> None:
         with self._db() as db:
             row = db.execute(
@@ -178,6 +190,7 @@ class Registry:
     def report_incident(self, report: IssueReport) -> None:
         with self._db() as db:
             agent = self._agent(db, report.agent_id)
+            self._require_reset_complete(db, report.agent_id)
             existing = db.execute(
                 "SELECT data FROM incidents WHERE id=?", (report.incident_id,)
             ).fetchone()
@@ -200,6 +213,7 @@ class Registry:
 
     def propose(self, candidate: Candidate) -> Recipe:
         with self._db() as db:
+            self._require_reset_complete(db, candidate.source_agent_id)
             prior = db.execute(
                 "SELECT recipe_id,data FROM candidates WHERE id=?", (candidate.candidate_id,)
             ).fetchone()

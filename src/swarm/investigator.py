@@ -7,6 +7,7 @@ repair detector and executor remain deterministic even when narration is enabled
 
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import json
 import re
@@ -15,6 +16,8 @@ from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
+
+MODEL_TIMEOUT_SECONDS = 8.0
 
 _ID = re.compile(r"^[A-Za-z0-9_.:-]{1,120}$")
 _KINDS = {
@@ -115,7 +118,9 @@ async def _call_model(url: str, model: str, evidence: list[dict]) -> str:
         "max_tokens": 600,
         "response_format": {"type": "json_object"},
     }
-    async with httpx.AsyncClient(timeout=8.0, trust_env=False, follow_redirects=False) as client:
+    async with httpx.AsyncClient(
+        timeout=MODEL_TIMEOUT_SECONDS, trust_env=False, follow_redirects=False
+    ) as client:
         async with client.stream("POST", url, json=payload) as response:
             response.raise_for_status()
             chunks = bytearray()
@@ -141,13 +146,24 @@ async def explain_candidate(
         return "Deterministic rule (no shareable model evidence): " + _RULE, "deterministic"
     try:
         url = _local_chat_url(base_url)
-        raw = await _call_model(url, model[:200], clean)
+        # HTTP read timeouts only limit inactivity between chunks. A total deadline
+        # also bounds a server that keeps slowly streaming, so observation resumes.
+        async with asyncio.timeout(MODEL_TIMEOUT_SECONDS):
+            raw = await _call_model(url, model[:200], clean)
         explanation = ModelExplanation.model_validate_json(raw)
         supplied = {item["evidence_id"] for item in clean}
         if not set(explanation.evidence_ids).issubset(supplied):
             raise ValueError("Model cited unknown evidence")
         return "Local-model hypothesis: " + explanation.explanation, "local_model"
-    except (httpx.HTTPError, ValidationError, ValueError, KeyError, IndexError, TypeError):
+    except (
+        TimeoutError,
+        httpx.HTTPError,
+        ValidationError,
+        ValueError,
+        KeyError,
+        IndexError,
+        TypeError,
+    ):
         return (
             "Deterministic fallback (local model unavailable or response invalid): " + _RULE,
             "deterministic",

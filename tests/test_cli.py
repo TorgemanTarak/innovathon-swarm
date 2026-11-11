@@ -1,6 +1,6 @@
 import pytest
 
-from swarm.cli import _check_bind, parser
+from swarm.cli import _agent_args, _check_bind, parser
 
 
 def test_lan_binding_requires_explicit_token():
@@ -19,3 +19,12 @@ def test_demo_defaults_are_native_processes_without_cloud_dependencies():
 def test_node_identity_and_data_root_are_explicit():
     with pytest.raises(SystemExit):
         parser().parse_args(["node"])
+
+
+def test_node_agent_uses_expanded_home_directory(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    args = parser().parse_args(["node", "--id", "test", "--data-dir", "~/swarm-node"])
+
+    child_args = _agent_args(args, demo_url="http://127.0.0.1:8771")
+
+    assert child_args[child_args.index("--data-dir") + 1] == str(tmp_path / "swarm-node")

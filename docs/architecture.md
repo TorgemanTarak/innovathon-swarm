@@ -44,7 +44,7 @@ Assignments have IDs, deadlines and terminal outcomes. Duplicate submissions can
 
 Assignment timeout defaults to 120 seconds; an unconfirmed canary pauses the recipe. Global pause prevents new work delivery, including pending work not yet picked up. An action already running may finish. This is not instant remote cancellation.
 
-Reset clears shared incidents, recipes and outcomes, retains registrations and queues explicit reset commands. Agents restore only known app resources and clear runtime association state. Local audit observations/quarantine are preserved. Results from old/reset assignments are rejected.
+Reset clears shared incidents, recipes and outcomes, retains registrations and queues explicit reset commands. Agents restore only known app resources and clear runtime association state. Local audit observations/quarantine are preserved. Results from old/reset assignments are rejected. Each endpoint's incident reports and proposals are also rejected until it acknowledges a successful reset, preventing an in-flight tick from restoring pre-reset knowledge. A failed reset leaves that evidence barrier in place; resolve the local error and request another reset.
 
 ## Transport and identity
 

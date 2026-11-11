@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import httpx
@@ -9,7 +10,7 @@ import pytest
 from swarm.agent import AgentConfig, EndpointAgent
 from swarm.demo_app import create_app
 from swarm.models import Assignment, Candidate, DemoCommand, Recipe, Work, issue_key
-from swarm.repairs import cache_path, inject_fault, quarantine_cache
+from swarm.repairs import cache_path, inject_fault, quarantine_cache, write_cache
 
 
 class HubTransport(httpx.AsyncBaseTransport):
@@ -187,6 +188,45 @@ async def test_interrupted_attempt_is_inconclusive_and_never_blindly_replayed(en
     assert not list((agent.root / "quarantine").iterdir())
 
 
+@pytest.mark.parametrize("redeliver", [False, True])
+async def test_restart_does_not_learn_its_own_interrupted_repair(endpoint, redeliver):
+    agent, hub = endpoint
+    incident = await break_app(agent)
+    assignment = assignment_for(agent, incident)
+    agent.journal.claim_attempt(assignment.assignment_id, assignment.model_dump())
+    quarantine_cache(agent.root, assignment.assignment_id)
+    await agent.close()
+    # A timed-out assignment may no longer be returned by the coordinator.
+    hub.work.assignment = assignment if redeliver else None
+    restarted = EndpointAgent(agent.config, client=agent.client)
+    try:
+        for _ in range(3):
+            await restarted.tick()
+        assert hub.payloads("/api/outcomes")
+        assert all(p["status"] == "inconclusive" for p in hub.payloads("/api/outcomes"))
+        assert not hub.payloads("/api/candidates")
+        assert len(list((agent.root / "quarantine").iterdir())) == 1
+        assert restarted.journal.get("external_change") is None
+    finally:
+        await restarted.close()
+
+
+async def test_environment_change_reports_new_incident_after_restart(endpoint):
+    agent, hub = endpoint
+    incident = await break_app(agent)
+    await agent.close()
+    restarted = EndpointAgent(replace(agent.config, app_version="2.0.0"), client=agent.client)
+    try:
+        await restarted.tick()
+        reports = hub.payloads("/api/incidents")
+        assert len(reports) == 2
+        assert reports[-1]["incident_id"] != incident["incident_id"]
+        assert reports[-1]["environment"]["app_version"] == "2.0.0"
+        assert restarted.journal.get("incident") == reports[-1]
+    finally:
+        await restarted.close()
+
+
 async def test_demo_reset_discards_stale_pending_deliveries_and_incident(endpoint):
     agent, hub = endpoint
     incident = await break_app(agent)
@@ -248,3 +288,39 @@ async def test_probe_regeneration_alone_is_not_external_repair_evidence(endpoint
         await agent.tick()
     assert not hub.payloads("/api/candidates")
     assert agent.journal.get("external_change") is None
+
+
+async def test_manual_repair_during_execution_probe_is_preserved(tmp_path):
+    root = tmp_path / "inflight-repair-device"
+    restored = b'{"schema":1,"projects":[{"name":"Human restored project"}]}'
+
+    class RepairAfterProbeTransport(HubTransport):
+        repair_next_probe = False
+
+        async def handle_async_request(self, request):
+            response = await super().handle_async_request(request)
+            if request.url.host == "demo" and self.repair_next_probe:
+                self.repair_next_probe = False
+                # The server already returned the old failure, but a human
+                # restores a valid cache before the agent receives that reply.
+                write_cache(root, restored)
+            return response
+
+    hub = RepairAfterProbeTransport(root)
+    async with httpx.AsyncClient(transport=hub) as client:
+        agent = EndpointAgent(
+            AgentConfig("mac-b", "Mac B", root, "http://hub", "http://demo", interval=0.001),
+            client=client,
+        )
+        try:
+            incident = await break_app(agent)
+            hub.work.assignment = assignment_for(agent, incident)
+            hub.repair_next_probe = True
+            await agent.tick()
+            outcome = hub.payloads("/api/outcomes")[-1]
+            assert outcome["status"] == "rejected"
+            assert "changed during" in outcome["detail"]
+            assert cache_path(root).read_bytes() == restored
+            assert not list((root / "quarantine").iterdir())
+        finally:
+            await agent.close()

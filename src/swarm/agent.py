@@ -76,6 +76,19 @@ class EndpointAgent:
         self._lock = asyncio.Lock()
         self._closed = False
         self.journal.set("fingerprint", self.journal.get("fingerprint", fingerprint(self.root)))
+        # A coordinator can expire an assignment while this endpoint is offline.
+        # Recover local attempts even when the hub never delivers them again.
+        for payload in self.journal.unfinished_attempts():
+            self._recover_interrupted_attempt(Assignment.model_validate(payload))
+        incident_data = self.journal.get("incident")
+        if incident_data and incident_data["environment"] != self.environment.model_dump():
+            # Re-registering a changed environment invalidates the hub's active
+            # incident. Discover a fresh incident under the new environment too.
+            self.journal.set("incident", None)
+            self.journal.set("resolved", False)
+            self.journal.set("candidate_enqueued", False)
+            self._reset_learning_baseline()
+            self.journal.observe("environment_changed", environment=self.environment.model_dump())
 
     def _url(self, path: str) -> str:
         return self.config.coordinator_url.rstrip("/") + path
@@ -175,6 +188,23 @@ class EndpointAgent:
             **kwargs,
         )
 
+    def _reset_learning_baseline(self) -> None:
+        self.journal.set("fingerprint", fingerprint(self.root))
+        self.journal.set("external_change", None)
+        self.journal.set("healthy_streak", 0)
+
+    def _recover_interrupted_attempt(self, assignment: Assignment) -> None:
+        outcome = self._outcome(
+            assignment,
+            status="inconclusive",
+            detail="Agent restarted during repair; automatic replay stopped for inspection",
+        )
+        # The mutation may have happened before the crash. Never attribute its
+        # recovery to an external intervention when observation resumes. Persist
+        # suppression before completing recovery, so a second crash is safe too.
+        self._reset_learning_baseline()
+        self.journal.finish_attempt(assignment.assignment_id, outcome.model_dump())
+
     async def _execute(self, assignment: Assignment) -> None:
         existing = self.journal.attempt(assignment.assignment_id)
         if existing:
@@ -184,12 +214,7 @@ class EndpointAgent:
                 )
                 return
             # We cannot safely infer how far a crashed process got. Never replay blindly.
-            outcome = self._outcome(
-                assignment,
-                status="inconclusive",
-                detail="Agent restarted during repair; automatic replay stopped for inspection",
-            )
-            self.journal.finish_attempt(assignment.assignment_id, outcome.model_dump())
+            self._recover_interrupted_attempt(assignment)
             return
 
         if not self.journal.claim_attempt(assignment.assignment_id, assignment.model_dump()):
@@ -220,10 +245,13 @@ class EndpointAgent:
                 raise ValueError("Recipe rollout is paused")
             if candidate.action != "quarantine_demo_cache" or not cache_is_invalid(self.root):
                 raise ValueError("Cache-repair precondition is not present")
+            expected_fingerprint = fingerprint(self.root)
 
             before, code, _ = await self._probe()
             if before is not False or code != "CACHE_INVALID":
                 raise ValueError("Functional probe did not reproduce the expected failure")
+            if fingerprint(self.root) != expected_fingerprint or not cache_is_invalid(self.root):
+                raise ValueError("Cache changed during the functional probe; repair stopped")
             backup = quarantine_cache(self.root, assignment.assignment_id)
             if backup is None:
                 raise ValueError("Cache disappeared before execution")
@@ -277,9 +305,7 @@ class EndpointAgent:
             if fault_injected:
                 set_verification_fault(self.root, False)
             # Agent-generated changes never count as new human repair discoveries.
-            self.journal.set("fingerprint", fingerprint(self.root))
-            self.journal.set("external_change", None)
-            self.journal.set("healthy_streak", 0)
+            self._reset_learning_baseline()
         outcome.duration_ms = int((time.monotonic() - started) * 1000)
         self.journal.finish_attempt(assignment.assignment_id, outcome.model_dump())
         self.journal.observe(

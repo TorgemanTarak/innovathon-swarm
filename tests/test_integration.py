@@ -184,6 +184,7 @@ def test_native_node_launcher_and_child_cleanup(fleet, tmp_path):
     _, client, _, wait = fleet
     app_port = free_port_block(1)
     env = {key: value for key, value in os.environ.items() if not key.startswith("SWARM_")}
+    env["HOME"] = str(tmp_path)
     with (tmp_path / "node.log").open("w") as log:
         process = subprocess.Popen(
             [
@@ -196,7 +197,7 @@ def test_native_node_launcher_and_child_cleanup(fleet, tmp_path):
                 "--coordinator",
                 str(client.base_url),
                 "--data-dir",
-                str(tmp_path / "native-data"),
+                "~/native-data",
                 "--app-port",
                 str(app_port),
                 "--interval",
@@ -205,6 +206,7 @@ def test_native_node_launcher_and_child_cleanup(fleet, tmp_path):
             stdout=log,
             stderr=log,
             env=env,
+            cwd=tmp_path,
         )
         try:
             state = wait(
@@ -217,6 +219,8 @@ def test_native_node_launcher_and_child_cleanup(fleet, tmp_path):
                 == "native"
             )
             assert httpx.get(f"http://127.0.0.1:{app_port}/work", trust_env=False).json()["ok"]
+            assert (tmp_path / "native-data" / "journal.sqlite").is_file()
+            assert not (tmp_path / "~").exists()
         finally:
             process.terminate()
             process.wait(timeout=10)

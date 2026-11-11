@@ -117,24 +117,31 @@
   }
 
   function roleFor(agent) {
-    const recipe = state.recipes.find((item) => item.candidate.source_agent_id === agent.agent_id || item.canary_agent_id === agent.agent_id);
-    const outcome = state.outcomes.find((item) => item.agent_id === agent.agent_id);
+    const origin = state.recipes.find((item) => item.candidate.source_agent_id === agent.agent_id && item.candidate.incident_id === agent.incident_id);
+    const canary = state.recipes.find((item) => item.canary_agent_id === agent.agent_id && item.status === "canary");
+    const outcome = state.outcomes.find((item) => item.agent_id === agent.agent_id && item.incident_id === agent.incident_id);
     if (outcome?.status === "verified") return "Verified replay";
     if (outcome && outcome.status !== "verified") return outcome.status;
-    if (recipe?.candidate.source_agent_id === agent.agent_id) return "Origin discovery";
-    if (recipe?.canary_agent_id === agent.agent_id) return "Canary endpoint";
+    if (origin) return "Origin discovery";
+    if (canary) return "Canary endpoint";
+    // Earlier incidents remain visible in Repair evidence, not as this incident's role.
     return agent.mode === "simulated" ? "Simulated endpoint" : "Native endpoint";
   }
 
   function renderTopology() {
     const agents = state.agents.slice(0, 6);
-    const paused = state.paused || state.recipes.some((r) => r.status === "paused");
-    const canary = state.recipes.find((r) => r.status === "canary");
+    const paused = !!state.paused;
+    const pausedRecipes = state.recipes.filter((r) => r.status === "paused").length;
+    const canaries = state.recipes.filter((r) => r.status === "canary");
+    const canaryAgents = new Set(canaries.map((r) => r.canary_agent_id));
     const validated = state.recipes.some((r) => r.status === "validated");
-    let status = paused ? "ROLLOUT PAUSED" : canary ? "CANARY IN PROGRESS" : validated ? "VERIFIED KNOWLEDGE" : state.recipes.length ? "CANDIDATE DISCOVERED" : "LISTENING FOR EVIDENCE";
+    const candidate = state.recipes.some((r) => r.status === "candidate");
+    const activity = canaries.length ? "CANARY IN PROGRESS" : validated ? "VERIFIED KNOWLEDGE" : candidate ? "CANDIDATE DISCOVERED" : "";
+    const recipePause = pausedRecipes ? `${pausedRecipes} ${pausedRecipes === 1 ? "RECIPE" : "RECIPES"} PAUSED` : "";
+    let status = paused ? "ROLLOUT PAUSED" : [recipePause,activity].filter(Boolean).join(" · ") || "LISTENING FOR EVIDENCE";
     if (!agents.length) status = "AWAITING SIGNAL";
     $("network-status").textContent = status;
-    const key = JSON.stringify([agents.map((a) => [a.agent_id,a.label,health(a),roleFor(a)]),status,state.recipes.length]);
+    const key = JSON.stringify([agents.map((a) => [a.agent_id,a.label,health(a),roleFor(a)]),status,state.recipes.length,[...canaryAgents]]);
     if (key === topologyKey) return;
     topologyKey = key;
     if (!agents.length) {
@@ -148,7 +155,7 @@
       const x = center + (index - (agents.length - 1) / 2) * spacing;
       const status = health(agent);
       const color = status === "healthy" ? "#72e8c0" : status === "unhealthy" ? "#f0b35a" : "#61757f";
-      const active = canary?.canary_agent_id === agent.agent_id && !paused;
+      const active = canaryAgents.has(agent.agent_id) && !paused;
       const line = `M450 102 C450 143 ${x} 132 ${x} 180`;
       const label = agent.label.length > 22 ? `${agent.label.slice(0,20)}…` : agent.label;
       return `<path d="${line}" fill="none" stroke="${color}" stroke-opacity=".18" stroke-width="1.4"/><path d="${line}" fill="none" stroke="${color}" stroke-opacity="${active ? ".7" : ".28"}" stroke-width="1.4" stroke-dasharray="${active ? "4 12" : "2 9"}" ${active ? 'class="flow-line"' : ""}/><circle cx="${x}" cy="195" r="25" fill="#101b1c" stroke="${color}" stroke-opacity=".45"/><circle cx="${x}" cy="195" r="32" fill="none" stroke="${color}" stroke-opacity=".07"/><g transform="translate(${x - 10} 188)" fill="none" stroke="${color}" stroke-width="1.3"><rect x="1" y="0" width="18" height="12" rx="1.7"/><path d="M-1 15h22M7 12v3M13 12v3"/></g><circle cx="${x + 19}" cy="177" r="4" fill="${color}" stroke="#10191b" stroke-width="2"/><text x="${x}" y="241" fill="#c7d7d0" text-anchor="middle" font-size="10">${esc(label)}</text><text x="${x}" y="259" fill="${color}" opacity=".7" text-anchor="middle" font-size="7.5" letter-spacing=".5">${esc(roleFor(agent).toUpperCase())}</text>`;
@@ -169,7 +176,7 @@
   }
 
   function renderRecipes() {
-    const key = JSON.stringify([state.recipes,state.outcomes]);
+    const key = JSON.stringify([state.recipes,state.outcomes,state.agents.map((a) => [a.agent_id,a.label])]);
     if (key === recipeKey) return;
     recipeKey = key;
     if (!state.recipes.length) {
@@ -188,7 +195,7 @@
   function renderEvents() {
     const events = state.events.slice(0, 40);
     $("activity-count").textContent = `${state.events.length} EVENTS`;
-    const key = JSON.stringify(events);
+    const key = JSON.stringify([events,state.agents.map((a) => [a.agent_id,a.label])]);
     if (key === eventKey) return;
     eventKey = key;
     if (!events.length) {

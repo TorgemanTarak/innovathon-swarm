@@ -91,7 +91,7 @@ def _agent_args(args: argparse.Namespace, *, demo_url: str, mode: str = "native"
         "--coordinator",
         args.coordinator,
         "--data-dir",
-        str(Path(args.data_dir).resolve()),
+        str(Path(args.data_dir).expanduser().resolve()),
         "--demo-url",
         demo_url,
         "--app-version",

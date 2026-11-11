@@ -70,6 +70,7 @@ make demo        # Local rehearsal including incompatible endpoint
 make dev         # Uvicorn with source reload on localhost:8765
 make check       # Ruff lint + format check + mypy + pytest
 make format      # Apply Ruff fixes and formatting
+make test-dashboard # Dashboard regression tests (Node 22+, no npm install)
 ```
 
 `make dev` runs only the coordinator. Launch one or more `swarm node` commands in separate terminals against it. This mode uses `.swarm/dev-coordinator.sqlite`; the complete demo uses `.swarm/local/coordinator.sqlite`.
@@ -84,6 +85,8 @@ uv run pytest -q
 ```
 
 Mypy checks every source module, checks typed and untyped function bodies, and requires function annotations. CI runs these checks on Linux and macOS. The process integration test exercises real HTTP services, local files, manual repair discovery, canary ordering, incompatible rejection, reset, pause and failed-verification rollback.
+
+CI also runs the dependency-free dashboard regression tests with Node 22. Node is only needed for those tests; running SWARM and the Python checks does not require it.
 
 To use Uvicorn directly:
 

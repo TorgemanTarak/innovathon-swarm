@@ -1,3 +1,4 @@
+import asyncio
 import json
 
 import httpx
@@ -164,3 +165,33 @@ async def test_oversized_model_response_falls_back(monkeypatch):
     )
     _, mode = await investigator.explain_candidate(EVIDENCE, "http://127.0.0.1:8080", "test")
     assert mode == "deterministic"
+
+
+async def test_continuous_slow_stream_has_total_deadline_and_is_cancelled(monkeypatch):
+    original_client = httpx.AsyncClient
+    cancelled = asyncio.Event()
+
+    class SlowStream(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            try:
+                while True:
+                    yield b" "
+                    await asyncio.sleep(0.01)
+            finally:
+                cancelled.set()
+
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, stream=SlowStream()))
+    monkeypatch.setattr(investigator, "MODEL_TIMEOUT_SECONDS", 0.05)
+    monkeypatch.setattr(
+        investigator.httpx,
+        "AsyncClient",
+        lambda **kwargs: original_client(transport=transport, **kwargs),
+    )
+
+    text, mode = await asyncio.wait_for(
+        investigator.explain_candidate(EVIDENCE, "http://127.0.0.1:8080", "test"), timeout=1
+    )
+
+    assert mode == "deterministic"
+    assert "fallback" in text
+    assert cancelled.is_set()

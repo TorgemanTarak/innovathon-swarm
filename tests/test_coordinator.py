@@ -202,6 +202,65 @@ def test_reset_invalidates_old_results_and_dispatches_reset_commands(client):
     assert work(client, "a")["commands"] == []
 
 
+def test_reset_rejects_in_flight_evidence_until_endpoint_acknowledges(client):
+    incidents, candidate, _ = make_fleet(client)
+    assignment = work(client, "b")["assignment"]
+    assert client.post("/api/demo/reset", json={}).status_code == 200
+
+    # The reset can land after an endpoint fetched work but before that tick's
+    # heartbeat/outbox delivery. Its stale evidence must not restore old recipes.
+    assert client.post("/api/agents/a/heartbeat", json={"health": "healthy"}).status_code == 200
+    stale_incident = client.post("/api/incidents", json=incidents["a"].model_dump())
+    assert stale_incident.status_code == 409
+    assert "reset is pending" in stale_incident.json()["detail"]
+    stale_candidate = client.post("/api/candidates", json=candidate.model_dump())
+    assert stale_candidate.status_code == 409
+    assert "reset is pending" in stale_candidate.json()["detail"]
+    assert client.post("/api/outcomes", json=outcome(assignment)).status_code == 409
+    assert client.get("/api/state").json()["recipes"] == []
+
+    command = work(client, "a")["commands"][0]
+    assert command["kind"] == "reset"
+    assert (
+        client.post(
+            "/api/agents/a/commands/ack",
+            json={"command_id": command["command_id"], "success": True},
+        ).status_code
+        == 200
+    )
+    state = client.get("/api/state").json()
+    assert state["recipes"] == []
+    assert (
+        next(agent for agent in state["agents"] if agent["agent_id"] == "a")["incident_id"] is None
+    )
+
+    # New evidence after the reset is accepted normally, even while other
+    # endpoints are still waiting to acknowledge their own reset commands.
+    fresh_incident = report_failure(client, "a", incidents["a"].environment)
+    assert client.post("/api/agents/a/heartbeat", json={"health": "healthy"}).status_code == 200
+    fresh_candidate = candidate.model_copy(
+        update={"candidate_id": "after-reset", "incident_id": fresh_incident.incident_id}
+    )
+    assert client.post("/api/candidates", json=fresh_candidate.model_dump()).status_code == 200
+
+
+def test_failed_reset_acknowledgement_does_not_reopen_evidence_ingestion(client):
+    incidents, candidate, _ = make_fleet(client)
+    assert client.post("/api/demo/reset", json={}).status_code == 200
+    command = work(client, "a")["commands"][0]
+    assert (
+        client.post(
+            "/api/agents/a/commands/ack",
+            json={"command_id": command["command_id"], "success": False, "detail": "Reset failed"},
+        ).status_code
+        == 200
+    )
+    assert client.post("/api/agents/a/heartbeat", json={"health": "healthy"}).status_code == 200
+    assert client.post("/api/incidents", json=incidents["a"].model_dump()).status_code == 409
+    assert client.post("/api/candidates", json=candidate.model_dump()).status_code == 409
+    assert client.get("/api/state").json()["recipes"] == []
+
+
 def test_timeout_pauses_rollout_and_rejects_late_success(client):
     make_fleet(client)
     assignment = work(client, "b")["assignment"]

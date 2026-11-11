@@ -100,6 +100,12 @@ class Journal:
         ).fetchone()
         return (row[0], json.loads(row[1])) if row else None
 
+    def unfinished_attempts(self) -> list[dict]:
+        rows = self.connection.execute(
+            "SELECT payload FROM attempts WHERE state='executing' ORDER BY rowid"
+        ).fetchall()
+        return [json.loads(row[0]) for row in rows]
+
     def finish_attempt(self, identity: str, payload: dict) -> None:
         with self.connection:
             self.connection.execute(
