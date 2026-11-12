@@ -7,6 +7,7 @@ import sqlite3
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Literal
 
@@ -41,6 +42,127 @@ def _dump(value: Any) -> str:
 
 def _environment_key(value: dict[str, Any]) -> tuple[str, str, str]:
     return value["app_id"], value["app_version"], value["platform"]
+
+
+@dataclass(frozen=True)
+class _Eligibility:
+    agent_id: str
+    status: Literal["eligible", "waiting", "excluded", "assigned", "completed"]
+    reason: str
+    reason_detail: str
+    role: Literal["canary", "follower"] | None = None
+
+
+def _eligibility(
+    agent: dict[str, Any],
+    recipe: Recipe,
+    *,
+    paused: bool,
+    command_pending: bool,
+    reset_pending: bool,
+    pending: Assignment | None,
+    previous: Assignment | None,
+    outcome: Outcome | None,
+    now: float,
+) -> _Eligibility:
+    """Explain delivery without reserving work or changing registry state.
+
+    `previous` and `outcome` belong to this recipe and the current incident.
+    Pending redelivery intentionally precedes fresh health/compatibility checks:
+    an endpoint may be reporting recovery while its durable outcome is in flight.
+    The endpoint still rechecks every precondition before a new mutation.
+    """
+    agent_id = agent["agent_id"]
+    candidate = recipe.candidate
+    same_pending = pending is not None and pending.recipe.recipe_id == recipe.recipe_id
+    role = pending.role if pending is not None and same_pending else None
+
+    def decision(
+        status: Literal["eligible", "waiting", "excluded", "assigned", "completed"],
+        reason: str,
+        detail: str,
+        assigned_role: Literal["canary", "follower"] | None = role,
+    ) -> _Eligibility:
+        return _Eligibility(agent_id, status, reason, detail, assigned_role)
+
+    if previous is not None and outcome is not None:
+        return decision(
+            "completed",
+            f"outcome_{outcome.status}",
+            f"Current incident: {outcome.status}; "
+            f"{outcome.checks_passed}/{outcome.checks_total} functional checks passed. "
+            f"{outcome.detail}",
+            previous.role,
+        )
+    if paused:
+        return decision("waiting", "global_paused", "Fleet dispatch is paused.")
+    if reset_pending:
+        return decision(
+            "waiting", "reset_pending", "Waiting for a successful endpoint reset acknowledgement."
+        )
+    if command_pending:
+        return decision("waiting", "command_pending", "A demo command must finish before repair.")
+    if pending is not None:
+        if not same_pending:
+            return decision("waiting", "other_assignment", "Another repair is already assigned.")
+        if recipe.status == "paused":
+            return decision("waiting", "recipe_paused", "This recipe is paused; delivery is held.")
+        return decision(
+            "assigned", "assignment_pending", "Repair assigned; waiting for its terminal outcome."
+        )
+    if now - agent["last_seen_epoch"] > 30:
+        return decision("waiting", "offline", "No endpoint heartbeat within 30 seconds.")
+    if agent_id == candidate.source_agent_id and agent.get("incident_id") == candidate.incident_id:
+        return decision(
+            "excluded", "source_incident", "The source incident cannot validate its own repair."
+        )
+    if agent["health"] == "healthy":
+        return decision("excluded", "healthy", "The current functional probe is healthy.")
+    if agent["health"] != "unhealthy":
+        return decision("waiting", "health_unknown", "Waiting for a failing functional probe.")
+    if not agent.get("incident_id") or agent.get("issue_key") != candidate.issue_key:
+        return decision(
+            "excluded", "no_matching_incident", "No current incident matches this issue."
+        )
+    if agent_id == candidate.source_agent_id and recipe.status != "validated":
+        return decision(
+            "excluded", "source_cannot_canary", "The source must wait for independent validation."
+        )
+    required = candidate.environment.model_dump()
+    differences = [
+        f"{label} {agent['environment'][key]} requires {required[key]}"
+        for key, label in (
+            ("app_id", "Application"),
+            ("app_version", "App version"),
+            ("platform", "Platform"),
+        )
+        if agent["environment"][key] != required[key]
+    ]
+    if differences:
+        return decision("excluded", "environment_mismatch", "; ".join(differences) + ".")
+    if recipe.status == "paused":
+        return decision(
+            "waiting", "recipe_paused", "This recipe is paused after an unverified result."
+        )
+    if recipe.status == "canary":
+        return decision(
+            "waiting", "canary_in_progress", "Waiting for the canary to verify recovery."
+        )
+    if previous is not None:
+        return decision(
+            "excluded",
+            "already_attempted",
+            "This recipe was already attempted for this incident.",
+            previous.role,
+        )
+    return decision(
+        "eligible",
+        "canary_available" if recipe.status == "candidate" else "follower_ready",
+        "Matching unhealthy incident; eligible for independent canary validation."
+        if recipe.status == "candidate"
+        else "Matching unhealthy incident; canary verification permits follower repair.",
+        "canary" if recipe.status == "candidate" else "follower",
+    )
 
 
 class Registry:
@@ -223,7 +345,7 @@ class Registry:
                 "SELECT recipe_id,data FROM candidates WHERE id=?", (candidate.candidate_id,)
             ).fetchone()
             if prior:
-                if prior["data"] != _dump(candidate):
+                if Candidate.model_validate_json(prior["data"]) != candidate:
                     raise RegistryError(409, "Candidate ID already identifies a different proposal")
                 return Recipe.model_validate_json(
                     db.execute(
@@ -295,7 +417,7 @@ class Registry:
             "SELECT data FROM outcomes WHERE id=?", (outcome.assignment_id,)
         ).fetchone()
         if existing:
-            if existing[0] != _dump(outcome):
+            if Outcome.model_validate_json(existing[0]) != outcome:
                 raise RegistryError(409, "Assignment already has a different terminal outcome")
             return
         if row["state"] != "pending":
@@ -385,73 +507,102 @@ class Registry:
         with self._db() as db:
             agent = self._agent(db, agent_id)
             self._expire_assignments(db)
+            # The agent index scopes both pending commands and failed reset barriers.
+            command_rows = db.execute(
+                "SELECT data,ack FROM commands WHERE agent_id=? AND "
+                "(ack IS NULL OR (json_extract(ack,'$.success')=0 "
+                "AND json_extract(data,'$.kind')='reset')) ORDER BY rowid",
+                (agent_id,),
+            ).fetchall()
             commands = [
-                DemoCommand.model_validate_json(row[0])
-                for row in db.execute(
-                    "SELECT data FROM commands WHERE agent_id=? AND ack IS NULL ORDER BY rowid",
-                    (agent_id,),
-                )
+                DemoCommand.model_validate_json(row["data"])
+                for row in command_rows
+                if row["ack"] is None
             ]
+            reset_pending = any(json.loads(row["data"])["kind"] == "reset" for row in command_rows)
             paused = self._paused(db)
-            if paused or commands:
-                return Work(commands=commands, paused=paused)
-            # Do not re-deliver a pending repair after a global/recipe pause.
-            pending = db.execute(
-                "SELECT data,recipe_id FROM assignments WHERE agent_id=? AND state='pending'",
+            pending_row = db.execute(
+                "SELECT data,recipe_id FROM assignments WHERE agent_id=? AND state='pending' "
+                "ORDER BY rowid LIMIT 1",
                 (agent_id,),
             ).fetchone()
-            if pending:
+            pending = Assignment.model_validate_json(pending_row["data"]) if pending_row else None
+            if pending is not None:
                 recipe = Recipe.model_validate_json(
                     db.execute(
-                        "SELECT data FROM recipes WHERE id=?", (pending["recipe_id"],)
+                        "SELECT data FROM recipes WHERE id=?", (pending.recipe.recipe_id,)
                     ).fetchone()[0]
                 )
-                if recipe.status == "paused":
-                    return Work(paused=False)
-                return Work(assignment=Assignment.model_validate_json(pending["data"]))
+                decision = _eligibility(
+                    agent,
+                    recipe,
+                    paused=paused,
+                    command_pending=bool(commands),
+                    reset_pending=reset_pending,
+                    pending=pending,
+                    previous=None,
+                    outcome=None,
+                    now=time.time(),
+                )
+                return Work(
+                    commands=commands,
+                    paused=paused,
+                    assignment=pending if decision.status == "assigned" else None,
+                )
+            # Recipe-independent rejection is cheap on the polling hot path.
+            # Keep this after pending redelivery: a recovering endpoint can still
+            # need its existing assignment to flush a durable terminal outcome.
             if (
-                agent["health"] != "unhealthy"
+                paused
+                or commands
+                or reset_pending
+                or agent["health"] != "unhealthy"
                 or not agent.get("incident_id")
                 or not agent.get("issue_key")
                 or time.time() - agent["last_seen_epoch"] > 30
             ):
-                return Work()
+                return Work(commands=commands, paused=paused)
+            # One indexed lookup for this incident, not one history query per recipe.
+            history = {}
+            if agent.get("incident_id"):
+                for row in db.execute(
+                    "SELECT a.recipe_id,a.data,o.data AS outcome FROM assignments a "
+                    "LEFT JOIN outcomes o ON o.id=a.id WHERE a.agent_id=? AND a.incident_id=?",
+                    (agent_id, agent["incident_id"]),
+                ):
+                    history[row["recipe_id"]] = (
+                        Assignment.model_validate_json(row["data"]),
+                        Outcome.model_validate_json(row["outcome"]) if row["outcome"] else None,
+                    )
             for row in db.execute("SELECT data FROM recipes ORDER BY rowid"):
                 recipe = Recipe.model_validate_json(row[0])
-                candidate = recipe.candidate
-                if candidate.issue_key != agent["issue_key"]:
-                    continue
-                if candidate.source_agent_id == agent_id and (
-                    recipe.status != "validated" or agent["incident_id"] == candidate.incident_id
-                ):
-                    # The origin cannot validate its own discovery, but can reuse
-                    # independently validated knowledge for a later incident.
-                    continue
-                if _environment_key(candidate.environment.model_dump()) != _environment_key(
-                    agent["environment"]
-                ):
+                previous, outcome = history.get(recipe.recipe_id, (None, None))
+                decision = _eligibility(
+                    agent,
+                    recipe,
+                    paused=paused,
+                    command_pending=bool(commands),
+                    reset_pending=reset_pending,
+                    pending=None,
+                    previous=previous,
+                    outcome=outcome,
+                    now=time.time(),
+                )
+                if decision.reason == "environment_mismatch":
                     marker = f"incompatible:{recipe.recipe_id}:{agent_id}:{agent['incident_id']}"
                     if not db.execute("SELECT 1 FROM meta WHERE key=?", (marker,)).fetchone():
                         db.execute("INSERT INTO meta (key,value) VALUES (?, 'true')", (marker,))
                         self._event(
                             db,
                             "repair_incompatible",
-                            "Repair skipped: application version or platform differs",
+                            f"Repair skipped: {decision.reason_detail}",
                             agent_id,
                             recipe.recipe_id,
                         )
+                if decision.status != "eligible":
                     continue
-                if recipe.status in {"paused", "canary"}:
-                    continue
-                previous = db.execute(
-                    "SELECT 1 FROM assignments WHERE agent_id=? AND incident_id=? AND recipe_id=?",
-                    (agent_id, agent["incident_id"], recipe.recipe_id),
-                ).fetchone()
-                if previous:
-                    continue
-                role: Literal["canary", "follower"] = (
-                    "canary" if recipe.status == "candidate" else "follower"
-                )
+                role = decision.role
+                assert role is not None  # Eligible decisions always name the delivery role.
                 if role == "canary":
                     recipe.status = "canary"
                     recipe.canary_agent_id = agent_id
@@ -478,7 +629,7 @@ class Registry:
                     recipe.recipe_id,
                 )
                 return Work(assignment=assignment)
-            return Work()
+            return Work(commands=commands, paused=paused)
 
     def pause(self, paused: bool) -> None:
         with self._db() as db:
@@ -569,27 +720,95 @@ class Registry:
             )
 
     def snapshot(self, demo_mode: bool) -> dict[str, Any]:
+        """Return history plus a live eligibility preview for the newest recipe.
+
+        `eligibility_recipe_id` names that recipe, or is null without recipes.
+        Only the named recipe has an `eligibility` list; older recipe objects omit
+        the key (not an empty list). This bounds preview work/output to O(agents),
+        independently of recipe history, while preserving all historical evidence.
+        """
         with self._db() as db:
             self._expire_assignments(db)
-            agents = []
-            for row in db.execute("SELECT data FROM agents ORDER BY id"):
-                agent = json.loads(row[0])
-                agent["online"] = time.time() - agent.pop("last_seen_epoch") <= 30
-                agents.append(agent)
+            now = time.time()
+            paused = self._paused(db)
+            agents = [
+                json.loads(row[0]) for row in db.execute("SELECT data FROM agents ORDER BY id")
+            ]
+            recipes = [
+                Recipe.model_validate_json(row[0])
+                for row in db.execute("SELECT data FROM recipes ORDER BY rowid DESC")
+            ]
+            outcomes = [
+                Outcome.model_validate_json(row[0])
+                for row in db.execute("SELECT data FROM outcomes ORDER BY rowid DESC")
+            ]
+            outcomes_by_assignment = {outcome.assignment_id: outcome for outcome in outcomes}
+            # Group history once for O(1) lookup per endpoint in the one preview.
+            history = {}
+            pending_by_agent: dict[str, Assignment] = {}
+            roles_by_assignment = {}
+            for row in db.execute("SELECT data,state FROM assignments ORDER BY rowid"):
+                assignment = Assignment.model_validate_json(row["data"])
+                roles_by_assignment[assignment.assignment_id] = assignment.role
+                history[
+                    (assignment.agent_id, assignment.incident_id, assignment.recipe.recipe_id)
+                ] = assignment
+                if row["state"] == "pending":
+                    pending_by_agent.setdefault(assignment.agent_id, assignment)
+            command_agents = set()
+            reset_agents = set()
+            for row in db.execute("SELECT agent_id,data,ack FROM commands"):
+                if row["ack"] is None:
+                    command_agents.add(row["agent_id"])
+                if json.loads(row["data"])["kind"] == "reset" and (
+                    row["ack"] is None or not json.loads(row["ack"])["success"]
+                ):
+                    reset_agents.add(row["agent_id"])
+            recipe_data = [recipe.model_dump(mode="json") for recipe in recipes]
+            eligibility_recipe_id = recipes[0].recipe_id if recipes else None
+            if recipes:
+                recipe = recipes[0]
+                decisions = []
+                for agent in agents:
+                    previous = history.get(
+                        (agent["agent_id"], agent.get("incident_id"), recipe.recipe_id)
+                    )
+                    outcome = (
+                        outcomes_by_assignment.get(previous.assignment_id) if previous else None
+                    )
+                    decisions.append(
+                        asdict(
+                            _eligibility(
+                                agent,
+                                recipe,
+                                paused=paused,
+                                command_pending=agent["agent_id"] in command_agents,
+                                reset_pending=agent["agent_id"] in reset_agents,
+                                pending=pending_by_agent.get(agent["agent_id"]),
+                                previous=previous,
+                                outcome=outcome,
+                                now=now,
+                            )
+                        )
+                    )
+                recipe_data[0]["eligibility"] = decisions
+            for agent in agents:
+                agent["online"] = now - agent.pop("last_seen_epoch") <= 30
             return {
                 "agents": agents,
-                "recipes": [
-                    json.loads(row[0])
-                    for row in db.execute("SELECT data FROM recipes ORDER BY rowid DESC")
-                ],
+                "recipes": recipe_data,
+                "eligibility_recipe_id": eligibility_recipe_id,
                 "outcomes": [
-                    json.loads(row[0])
-                    for row in db.execute("SELECT data FROM outcomes ORDER BY rowid DESC")
+                    {
+                        **outcome.model_dump(mode="json"),
+                        "role": roles_by_assignment.get(outcome.assignment_id),
+                    }
+                    for outcome in outcomes
                 ],
                 "events": [
                     json.loads(row[0])
                     for row in db.execute("SELECT data FROM events ORDER BY seq DESC LIMIT 200")
                 ],
-                "paused": self._paused(db),
+                "paused": paused,
                 "demo_mode": demo_mode,
             }

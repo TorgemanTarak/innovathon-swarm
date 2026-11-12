@@ -182,6 +182,18 @@ No model weights are bundled or downloaded, no OpenAI API call is made, and no s
 
 Raw application logs and cache contents stay at the endpoint. The registry receives signatures, environment metadata, local evidence references, hypotheses and outcomes. Evidence references are audit pointers, not independently authenticated proof.
 
+The **Repair evidence** panel shows bounded endpoint-reported observations:
+failure, external change, recovery checks, replay verification and rollback.
+Expand a replay to inspect its recorded steps. The newest recipe also shows why
+each endpoint is eligible, waiting, excluded, assigned or completed, including
+exact incompatible app versions. This is a current policy preview; dispatch and
+the endpoint still recheck authorization and preconditions. Older recipes retain
+their evidence without multiplying the live fleet preview across history.
+
+Update the coordinator and agents together when taking this version. Existing
+SQLite records load without losing history; old records without evidence summaries
+are labelled unavailable. Mixed-version wire compatibility is not implemented.
+
 ## Repository map
 
 - `src/swarm/models.py` — versioned wire contracts and deterministic issue identity.

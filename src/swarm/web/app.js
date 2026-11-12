@@ -21,6 +21,13 @@
   let rolesByAgent = new Map();
   let outcomesByRecipe = new Map();
   const seenEvents = new Set();
+  const evidenceLabels = {
+    functional_failure: "Functional failure", cache_changed: "Cache changed",
+    recovery_verified: "Origin recovery verified", repair_precondition: "Repair precheck",
+    repair_applied: "Repair applied", repair_verified: "Replay recovery verified",
+    verification_failed: "Verification failed", rollback_restored: "Previous cache restored",
+    rollback_failed: "Rollback failed",
+  };
 
   // Guard the rendering boundary, not the full versioned wire contract.
   // An invalid response must never replace the last usable fleet snapshot.
@@ -28,7 +35,22 @@
     const record = (item) => item !== null && typeof item === "object" && !Array.isArray(item);
     const strings = (item, keys) => record(item) && keys.every((key) => typeof item[key] === "string");
     const environment = (item) => strings(item, ["platform", "app_version"]);
+    const timestamp = (item) => typeof item === "string" && /T.*(?:Z|[+-]\d{2}:\d{2})$/.test(item) && Number.isFinite(Date.parse(item));
+    const role = (item) => item == null || ["canary", "follower"].includes(item);
+    const fingerprint = (item) => item == null || (typeof item === "string" && /^(?:[0-9a-f]{64}|missing|oversized)$/.test(item));
+    const evidence = (items, limit) => items === undefined || (Array.isArray(items) && items.length <= limit && items.every((item) =>
+      strings(item, ["evidence_id", "observed_at", "kind"]) && timestamp(item.observed_at)
+      && Object.hasOwn(evidenceLabels, item.kind) && fingerprint(item.cache_before) && fingerprint(item.cache_after)
+      && (item.probe_result == null || ["passed", "failed", "unknown"].includes(item.probe_result))
+      && (item.error_code == null || ["CACHE_INVALID", "VERIFICATION_FAILED", "APPLICATION_ERROR", "UNREACHABLE"].includes(item.error_code))
+      && ((item.checks_passed == null && item.checks_total == null)
+        || (Number.isInteger(item.checks_passed) && Number.isInteger(item.checks_total)
+          && item.checks_passed >= 0 && item.checks_passed <= item.checks_total && item.checks_total >= 1 && item.checks_total <= 100))));
+    const eligibility = (items) => items === undefined || (Array.isArray(items) && items.every((item) =>
+      strings(item, ["agent_id", "status", "reason", "reason_detail"])
+      && ["eligible", "waiting", "excluded", "assigned", "completed"].includes(item.status) && role(item.role)));
     return record(value) && typeof value.paused === "boolean" && typeof value.demo_mode === "boolean"
+      && (value.eligibility_recipe_id == null || typeof value.eligibility_recipe_id === "string")
       && ["agents", "recipes", "outcomes", "events"].every((key) => Array.isArray(value[key]))
       && value.agents.every((agent) => strings(agent, ["agent_id", "label"])
         && ["healthy", "unhealthy", "unknown"].includes(agent.health) && environment(agent.environment))
@@ -36,8 +58,11 @@
         && strings(recipe.candidate, ["source_agent_id", "incident_id", "explanation"])
         && environment(recipe.candidate.environment)
         && Array.isArray(recipe.candidate.evidence_ids)
-        && recipe.candidate.evidence_ids.every((id) => typeof id === "string"))
-      && value.outcomes.every((outcome) => strings(outcome, ["agent_id", "recipe_id", "incident_id", "status"]))
+        && recipe.candidate.evidence_ids.every((id) => typeof id === "string")
+        && evidence(recipe.candidate.evidence, 3) && eligibility(recipe.eligibility))
+      && value.outcomes.every((outcome) => strings(outcome, ["agent_id", "recipe_id", "incident_id", "status"])
+        && evidence(outcome.evidence, 8) && role(outcome.role)
+        && (outcome.observed_at === undefined || typeof outcome.observed_at === "string"))
       && value.events.every((event) => strings(event, ["event_id", "timestamp", "kind", "message"]));
   }
 
@@ -228,21 +253,60 @@
     }
   }
 
+  function evidenceTimeline(items, origin = false) {
+    if (!items?.length) return '<div class="summary-unavailable">Structured evidence summary unavailable.</div>';
+    const cache = (value) => /^[0-9a-f]{64}$/.test(value) ? `SHA256 ${short(value)}…` : value;
+    return `<ol class="evidence-timeline${origin ? " origin-timeline" : ""}">${items.map((item, index) => {
+      const facts = [];
+      if (item.probe_result != null) facts.push(`Functional probe: ${esc(item.probe_result)}`);
+      if (item.error_code != null) facts.push(esc(item.error_code));
+      if (item.checks_total != null) facts.push(`${item.checks_passed}/${item.checks_total} checks passed`);
+      const fingerprint = (name, value) => value == null ? "" : `<div class="evidence-cache">${name}: <code title="${esc(value)}">${esc(cache(value))}</code></div>`;
+      return `<li class="evidence-step"><div class="evidence-step-heading"><span class="step-number">${String(index + 1).padStart(2, "0")}</span><strong>${esc(evidenceLabels[item.kind])}</strong></div><time datetime="${esc(item.observed_at)}" title="${esc(item.observed_at)}">${timeLabel(item.observed_at)}</time>${facts.length ? `<div class="evidence-facts">${facts.join(" · ")}</div>` : ""}${fingerprint("Before", item.cache_before)}${fingerprint("After", item.cache_after)}<div class="evidence-reference">Ref ${esc(item.evidence_id)}</div></li>`;
+    }).join("")}</ol>`;
+  }
+
+  function renderEligibility(recipe) {
+    const entries = recipe.eligibility;
+    if (typeof state.eligibility_recipe_id === "string" && state.eligibility_recipe_id !== recipe.recipe_id) return '<section class="eligibility"><h4>Endpoint eligibility</h4><div class="summary-unavailable">Current eligibility is shown on the latest recipe.</div></section>';
+    if (entries === undefined) return '<section class="eligibility"><h4>Endpoint eligibility</h4><div class="summary-unavailable">Eligibility summary unavailable for this recipe.</div></section>';
+    const counts = new Map();
+    entries.forEach((entry) => counts.set(entry.status, (counts.get(entry.status) || 0) + 1));
+    const summary = ["eligible", "assigned", "waiting", "excluded", "completed"].filter((status) => counts.has(status)).map((status) => `${counts.get(status)} ${status}`).join(" · ");
+    return `<section class="eligibility"><div class="evidence-section-heading"><h4>Endpoint eligibility</h4><span>${esc(summary || "No endpoints registered")}</span></div><p class="proof-note">Coordinator decisions for current incidents. Each endpoint rechecks before repair.</p><div class="eligibility-list" role="list" tabindex="0" aria-label="Endpoint eligibility for recipe ${esc(short(recipe.recipe_id))}" data-focus-key="eligibility:${esc(recipe.recipe_id)}">${entries.map((entry) => `<div class="eligibility-row" role="listitem" data-agent-id="${esc(entry.agent_id)}" data-reason="${esc(entry.reason)}"><div class="eligibility-actor"><strong>${esc(labelFor(entry.agent_id))}</strong>${entry.role ? `<span>${esc(entry.role)}</span>` : ""}</div><span class="status-pill ${esc(entry.status)}">${esc(entry.status)}</span><p title="${esc(entry.reason)}">${esc(entry.reason_detail)}</p></div>`).join("")}</div></section>`;
+  }
+
+  function renderOutcome(outcome) {
+    const role = outcome.role === "canary" ? "Canary" : outcome.role === "follower" ? "Follower" : "Replay";
+    const report = outcome.observed_at && Number.isFinite(Date.parse(outcome.observed_at)) ? `<time datetime="${esc(outcome.observed_at)}" title="${esc(outcome.observed_at)}">${timeLabel(outcome.observed_at)}</time>` : "time unavailable";
+    const checks = Number.isInteger(outcome.checks_passed) && Number.isInteger(outcome.checks_total) ? `${outcome.checks_passed}/${outcome.checks_total} required checks passed` : "Required check count unavailable";
+    return `<div class="attempt"><div class="attempt-header"><strong>${esc(labelFor(outcome.agent_id))}</strong><span class="attempt-role">${role}</span><span>${checks}</span><span class="status-pill ${esc(outcome.status)}">${esc(outcome.status)}</span></div><p class="attempt-detail">${esc(outcome.detail || "Outcome detail unavailable.")}</p><div class="attempt-meta">Final report ${report} · Incident ${esc(short(outcome.incident_id))}</div>${evidenceTimeline(outcome.evidence)}</div>`;
+  }
+
   function renderRecipes() {
-    const key = JSON.stringify([state.recipes,state.outcomes,state.agents.map((a) => [a.agent_id,a.label])]);
+    const key = JSON.stringify([state.recipes,state.outcomes,state.eligibility_recipe_id,state.agents.map((a) => [a.agent_id,a.label])]);
     if (key === recipeKey) return;
     recipeKey = key;
+    const list = $("recipe-list");
+    const expanded = new Set([...list.querySelectorAll("details[data-panel-key]")].filter((panel) => panel.open).map((panel) => panel.dataset.panelKey));
+    const positions = new Map([...list.querySelectorAll("[data-focus-key]")].map((element) => [element.dataset.focusKey, element.scrollTop]));
+    const focused = list.contains(document.activeElement) ? document.activeElement?.dataset.focusKey : undefined;
     if (!state.recipes.length) {
-      $("recipe-list").innerHTML = '<div class="evidence-empty"><span class="empty-symbol" aria-hidden="true">⌘</span><div><h3>No repair learned yet</h3><p>Inject a fault, then repair one endpoint. Its recovery becomes a candidate for the swarm.</p></div><span class="waiting-label">AWAITING DISCOVERY</span></div>';
+      list.innerHTML = '<div class="evidence-empty"><span class="empty-symbol" aria-hidden="true">⌘</span><div><h3>No repair learned yet</h3><p>Inject a fault, then repair one endpoint. Its recovery becomes a candidate for the swarm.</p></div><span class="waiting-label">AWAITING DISCOVERY</span></div>';
       return;
     }
-    $("recipe-list").innerHTML = state.recipes.map((recipe) => {
+    list.innerHTML = state.recipes.map((recipe) => {
       const candidate = recipe.candidate;
       const outcomes = outcomesByRecipe.get(recipe.recipe_id) || [];
       const source = labelFor(candidate.source_agent_id);
       const path = `<span>${esc(source)}</span><b>→</b>${recipe.canary_agent_id ? `<span>${esc(labelFor(recipe.canary_agent_id))}</span>` : "Awaiting canary"}${recipe.status === "validated" ? '<b>→</b><span>Eligible peers</span>' : ""}`;
-      return `<article class="recipe"><div class="recipe-title-row"><h3>Quarantine invalid application cache</h3><span class="status-pill ${esc(recipe.status)}">${esc(recipe.status)}</span><span class="recipe-id">RECIPE ${esc(short(recipe.recipe_id))} / REV ${esc(recipe.revision)}</span></div><p class="recipe-description">${esc(candidate.explanation)}</p><div class="recipe-grid"><div class="proof-item"><span class="proof-label">DISCOVERY & PROPAGATION</span><div class="proof-value proof-path">${path}</div><div class="proof-note">${candidate.investigator === "local_model" ? "Local model interpretation" : "Deterministic observation"}</div></div><div class="proof-item"><span class="proof-label">ORIGIN EVIDENCE</span><div class="proof-value"><em>${esc(candidate.verification_count)}</em> successful probes</div><div class="proof-note">${safeArray(candidate.evidence_ids).length} local evidence references</div></div><div class="proof-item"><span class="proof-label">REPLAY OUTCOMES</span><div class="proof-value"><em>${esc(recipe.successes)}</em> verified <span class="slash">/</span> <span class="${recipe.failures ? "bad" : ""}">${esc(recipe.failures)}</span> failed</div><div class="proof-note">${outcomes.length} recorded ${outcomes.length === 1 ? "attempt" : "attempts"} · short observation window</div></div><div class="proof-item"><span class="proof-label">APPLICABILITY</span><div class="proof-value">${esc(platformLabel(candidate.environment.platform))} · ${esc(candidate.environment.app_version)}</div><div class="proof-note">${esc(candidate.issue_key)}</div></div></div><details><summary>Inspect verification results and evidence references</summary><div class="attempt-list">${outcomes.length ? outcomes.map((outcome) => `<div class="attempt"><strong>${esc(labelFor(outcome.agent_id))}</strong><span>${esc(outcome.checks_passed)}/${esc(outcome.checks_total)} probes</span><p>${esc(outcome.detail)}</p><span class="status-pill ${esc(outcome.status)}">${esc(outcome.status)}</span></div>`).join("") : '<p class="muted">No cross-device verification has completed yet.</p>'}</div><p class="proof-note">Local evidence IDs: ${safeArray(candidate.evidence_ids).map(esc).join(" · ") || "None supplied"}</p><p class="proof-note">Raw logs remain on the originating device. A successful short probe does not establish permanent resolution.</p></details></article>`;
+      return `<article class="recipe"><div class="recipe-title-row"><h3>Quarantine invalid application cache</h3><span class="status-pill ${esc(recipe.status)}">${esc(recipe.status)}</span><span class="recipe-id">RECIPE ${esc(short(recipe.recipe_id))} / REV ${esc(recipe.revision)}</span></div><p class="recipe-description">${esc(candidate.explanation)}</p><div class="recipe-grid"><div class="proof-item"><span class="proof-label">DISCOVERY & PROPAGATION</span><div class="proof-value proof-path">${path}</div><div class="proof-note">${candidate.investigator === "local_model" ? "Local model interpretation" : "Deterministic observation"}</div></div><div class="proof-item"><span class="proof-label">ORIGIN EVIDENCE</span><div class="proof-value"><em>${esc(candidate.verification_count)}</em> successful probes</div><div class="proof-note">${safeArray(candidate.evidence_ids).length} local evidence references</div></div><div class="proof-item"><span class="proof-label">REPLAY OUTCOMES</span><div class="proof-value"><em>${esc(recipe.successes)}</em> verified <span class="slash">/</span> <span class="${recipe.failures ? "bad" : ""}">${esc(recipe.failures)}</span> failed</div><div class="proof-note">${outcomes.length} recorded ${outcomes.length === 1 ? "attempt" : "attempts"} · short observation window</div></div><div class="proof-item"><span class="proof-label">APPLICABILITY</span><div class="proof-value">${esc(platformLabel(candidate.environment.platform))} · ${esc(candidate.environment.app_version)}</div><div class="proof-note">${esc(candidate.issue_key)}</div></div></div><section class="origin-evidence"><div class="evidence-section-heading"><h4>Origin observations</h4><span>${esc(source)} · ${esc(platformLabel(candidate.environment.platform))} · app ${esc(candidate.environment.app_version)}</span></div>${evidenceTimeline(candidate.evidence, true)}</section>${renderEligibility(recipe)}<details data-panel-key="${esc(recipe.recipe_id)}"><summary data-focus-key="replays:${esc(recipe.recipe_id)}">Inspect verification results and evidence references</summary><div class="attempt-list">${outcomes.length ? outcomes.map(renderOutcome).join("") : '<p class="muted">No cross-device verification has completed yet.</p>'}</div><p class="proof-note">Local evidence IDs: ${safeArray(candidate.evidence_ids).map(esc).join(" · ") || "None supplied"}</p></details><p class="proof-note evidence-caveat">Reported by endpoints. An observed change followed by recovery does not prove the cause. Raw logs stay local. Verification covers a short observation window.</p></article>`;
     }).join("");
+    list.querySelectorAll("details[data-panel-key]").forEach((panel) => { panel.open = expanded.has(panel.dataset.panelKey); });
+    list.querySelectorAll("[data-focus-key]").forEach((element) => { element.scrollTop = positions.get(element.dataset.focusKey) || 0; });
+    if (focused !== undefined) {
+      [...list.querySelectorAll("[data-focus-key]")].find((element) => element.dataset.focusKey === focused)?.focus({preventScroll:true});
+    }
   }
 
   function renderEvents() {

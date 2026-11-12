@@ -28,6 +28,38 @@ An incident opens only after `/work` fails with the recognized cache error. A ca
 
 The optional local-model adapter narrates this evidence. It cannot alter the action type, issue identity, rollout permissions or verification outcome. Invalid output falls back to a labelled deterministic explanation. A future investigator can collect extra evidence through typed read-only tools without changing the executor's trust boundary.
 
+### Shared evidence summaries
+
+Candidates now carry up to three typed summaries: the recognized functional
+failure, the observed external cache change, and the successful recovery checks.
+Replay outcomes carry up to eight summaries of the precondition check, applied
+action, attempted verification and rollback when applicable. Each summary names
+its local evidence ID and endpoint observation time, normalized to UTC. Optional
+fields contain only SHA-256 fingerprints (or `missing`/`oversized`), fixed probe
+results/error codes and bounded check counts. There are no arbitrary text, path,
+file-content or log fields in these summaries. Projection from the journal drops
+unsupported fields; malformed historical summaries remain local references.
+
+Observation time is when the endpoint recorded a result, not the exact time a
+human changed a file. Cache fingerprints describe the samples taken around that
+operation; concurrent changes can occur. An observed change followed by recovery
+is an association, not authenticated proof of who acted or what caused recovery.
+The dashboard labels the summaries as endpoint-reported. Existing incident,
+compatibility, canary and outcome checks remain the execution authority.
+
+Summary records travel in the existing durable candidate/outcome outbox. Delivery
+retries preserve their IDs and times. A rejected precondition has no applied-action
+record; failed or interrupted execution does not invent a successful verification.
+Rollback is reported as restored only after the restore actually completes. If a
+concurrent cache edit prevents restoration, the evidence reports rollback failure
+and preserves the original outcome explanation.
+
+Bounds apply per candidate/outcome; total journal and registry retention is still
+a future production task. Older stored records without summaries remain readable
+and are shown as unavailable, without fabricated historical snapshots. Upgrade
+the coordinator and agents together: old strict wire contracts do not accept the
+new fields. This is stored-data compatibility, not mixed-version fleet support.
+
 ## Execution and verification
 
 Recipes contain an allowlisted action ID, an exact environment, originating evidence IDs and a revision. They contain no executable scripts or arbitrary paths. Endpoints recheck the current incident, environment, cache state and failing operation immediately before action.
@@ -43,6 +75,19 @@ The coordinator uses SQLite transactions to admit one canary per issue/action/en
 Assignments have IDs, deadlines and terminal outcomes. Duplicate submissions cannot inflate evidence counts. The local journal is bound to its endpoint ID, including across demo resets. The local journal claims an attempt before mutation; after response loss it resends the stored outcome rather than applying the action again. An agent interrupted during a repair reports inconclusive instead of blindly repeating it. Inspect its quarantined file when recovering such an interruption.
 
 Assignment timeout defaults to 120 seconds; an unconfirmed canary pauses the recipe. Global pause prevents new work delivery, including pending work not yet picked up. An action already running may finish. This is not instant remote cancellation.
+
+The dashboard previews current eligibility for the newest recipe, identifying
+eligible, waiting, excluded, assigned and completed endpoints with specific
+reasons. The snapshot names that recipe with `eligibility_recipe_id`; older
+recipes retain their evidence and outcomes. This bounds the preview to one fleet
+list instead of generating every recipe/device pair. Preview and dispatch use the
+same side-effect-free policy predicate. A preview does not reserve a canary or
+authorize a mutation; state can change before work delivery and endpoint checks.
+It describes the current incident, while historical replay roles come from their
+original assignments. Snapshot reads retain the existing assignment-expiry
+processing but do not allocate work or emit incompatibility events just to render
+the preview. An offline endpoint may still have an outstanding assignment; its
+connectivity is shown separately from the assignment's terminal result.
 
 Reset clears shared incidents, recipes and outcomes, retains registrations and queues explicit reset commands. Agents restore only known app resources and clear runtime association state. Local audit observations/quarantine are preserved. Results from old/reset assignments are rejected. Each endpoint's incident reports and proposals are also rejected until it acknowledges a successful reset, preventing an in-flight tick from restoring pre-reset knowledge. A failed reset leaves that evidence barrier in place; resolve the local error and request another reset.
 

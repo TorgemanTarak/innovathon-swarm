@@ -92,6 +92,10 @@ the measured workload, not production readiness at an arbitrary fleet size.
 - The dashboard downloads all agents, recipes and outcomes. Pagination, bounded
   retention and incremental updates are needed for large fleets and many viewers.
   Indexing browser lookups does not bound snapshot size or DOM size.
+  Live eligibility is included only for the newest recipe: one record per agent,
+  rather than a recipe-by-agent cross product. Snapshot history is grouped once
+  for these decisions and original replay roles. This adds a linear history scan;
+  it does not claim that unbounded history or many dashboard viewers scale freely.
 - The HTTP benchmark uses concurrent batches, not thousands of running agents or
   real network partitions. Production polling needs workload-specific cadence,
   jitter/backoff and sustained-load measurements.

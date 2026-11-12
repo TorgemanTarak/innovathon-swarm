@@ -5,10 +5,10 @@ from __future__ import annotations
 import hashlib
 import platform
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Annotated, Literal, Self
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 def now_iso() -> str:
@@ -21,6 +21,66 @@ def new_id() -> str:
 
 class Contract(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+CacheFingerprint = Annotated[
+    str, Field(max_length=64, pattern=r"^(?:[0-9a-f]{64}|missing|oversized)$")
+]
+
+
+class EvidenceSummary(Contract):
+    """Bounded endpoint observations, never raw cache data, paths or log messages."""
+
+    schema_version: Literal[1] = 1
+    evidence_id: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,64}$")
+    observed_at: str = Field(max_length=40)
+    kind: Literal[
+        "functional_failure",
+        "cache_changed",
+        "recovery_verified",
+        "repair_precondition",
+        "repair_applied",
+        "repair_verified",
+        "verification_failed",
+        "rollback_restored",
+        "rollback_failed",
+    ]
+    cache_before: CacheFingerprint | None = None
+    cache_after: CacheFingerprint | None = None
+    probe_result: Literal["passed", "failed", "unknown"] | None = None
+    error_code: (
+        Literal["CACHE_INVALID", "VERIFICATION_FAILED", "APPLICATION_ERROR", "UNREACHABLE"] | None
+    ) = None
+    checks_passed: int | None = Field(default=None, ge=0, le=100, strict=True)
+    checks_total: int | None = Field(default=None, ge=1, le=100, strict=True)
+
+    @field_validator("observed_at")
+    @classmethod
+    def timestamp_has_timezone(cls, value: str) -> str:
+        parsed = datetime.fromisoformat(value)
+        if parsed.tzinfo is None:
+            raise ValueError("Evidence timestamps require a timezone")
+        return parsed.astimezone(UTC).isoformat()
+
+    @model_validator(mode="after")
+    def consistent_checks(self) -> Self:
+        if (self.checks_passed is None) != (self.checks_total is None):
+            raise ValueError("Evidence check counts must be supplied together")
+        if (
+            self.checks_passed is not None
+            and self.checks_total is not None
+            and self.checks_passed > self.checks_total
+        ):
+            raise ValueError("Passed checks cannot exceed attempted checks")
+        if self.kind in {"recovery_verified", "repair_verified"} and (
+            self.probe_result != "passed"
+            or self.error_code is not None
+            or self.checks_total is None
+            or self.checks_total < 3
+            or self.checks_passed != self.checks_total
+        ):
+            raise ValueError("Verified evidence requires at least three successful checks")
+        return self
 
 
 class Environment(Contract):
@@ -71,6 +131,24 @@ class Candidate(Contract):
     explanation: str = Field(max_length=2000)
     investigator: Literal["deterministic", "local_model"] = "deterministic"
     verification_count: int = Field(ge=3, le=100)
+    evidence: list[EvidenceSummary] = Field(default_factory=list, max_length=3)
+
+    @model_validator(mode="after")
+    def evidence_references_match(self) -> Self:
+        if any(
+            item.evidence_id not in self.evidence_ids
+            or item.kind not in {"functional_failure", "cache_changed", "recovery_verified"}
+            for item in self.evidence
+        ):
+            raise ValueError("Origin summaries must reference the candidate's local observations")
+        if len({item.evidence_id for item in self.evidence}) != len(self.evidence):
+            raise ValueError("Evidence summaries must have distinct references")
+        if any(
+            item.kind == "recovery_verified" and item.checks_passed != self.verification_count
+            for item in self.evidence
+        ):
+            raise ValueError("Recovery evidence count differs from the candidate")
+        return self
 
 
 class Recipe(Contract):
@@ -104,6 +182,18 @@ class Outcome(Contract):
     detail: str = Field(max_length=2000)
     duration_ms: int = Field(default=0, ge=0)
     observed_at: str = Field(default_factory=now_iso)
+    evidence: list[EvidenceSummary] = Field(default_factory=list, max_length=8)
+
+    @model_validator(mode="after")
+    def execution_evidence_only(self) -> Self:
+        if any(
+            item.kind in {"functional_failure", "cache_changed", "recovery_verified"}
+            for item in self.evidence
+        ):
+            raise ValueError("Replay summaries must describe executor observations")
+        if len({item.evidence_id for item in self.evidence}) != len(self.evidence):
+            raise ValueError("Replay summaries must have distinct references")
+        return self
 
 
 class DemoCommand(Contract):
