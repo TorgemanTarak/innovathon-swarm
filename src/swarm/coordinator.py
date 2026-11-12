@@ -123,4 +123,12 @@ def create_app(db_path: Path | str, token: str | None = None, demo_mode: bool = 
             return FileResponse(page, headers={"Cache-Control": "no-cache"})
         return JSONResponse({"service": "SWARM", "dashboard": "Not installed", "api": "/api/state"})
 
+    @app.get("/mock", include_in_schema=False)
+    def mock_dashboard() -> Response:
+        """A browser-only synthetic topology; never reads or mutates fleet state."""
+        page = web_dir / "mock.html"
+        if page.exists():
+            return FileResponse(page, headers={"Cache-Control": "no-cache"})
+        raise HTTPException(404, "Mock dashboard not installed")
+
     return app

@@ -39,6 +39,16 @@
    recipe and waiting peers. The remaining devices receive no repair.
 7. Reset to prepare another run. Global resume intentionally does not unpause a failed recipe.
 
+## Optional topology illustration
+
+Open **Topology lab** (`/mock`) to show a synthetic fleet of up to 1,024 devices.
+Choose source and destination IDs and press **Trace route** to follow prefix
+progress through bounded peer contact tables. The central coordinator remains
+visually separate from the route. Compare the generated directed contact count
+with all-to-all, and toggle peer links or coordinator spokes for clarity.
+Use this to explain an architectural possibility: the lab is browser-only,
+not a live fleet, full Pastry protocol or distributed scalability benchmark.
+
 ## Teammate setup
 
 Use the LAN instructions in README. Every endpoint needs a unique ID and its own data directory; all must use the coordinator's shared token. Agents send requests outbound; they do not accept arbitrary remote terminal connections. Open an app on the Mac where that app runs. A localhost app link from another laptop does not address that laptop's app.

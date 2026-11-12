@@ -22,7 +22,7 @@ test:
 	uv run pytest -q
 
 test-dashboard:
-	node --test tests/dashboard.test.cjs
+	node --test tests/*.test.cjs
 
 test-browser:
 	uv run --frozen --extra dev --extra browser pytest -q browser_tests

@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0C5497">
+  <meta name="description" content="Explore a synthetic SWARM fleet with Pastry-inspired routing and a central coordinator.">
+  <title>SWARM · Fleet topology lab</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="stylesheet" href="/static/mock.css">
+  <script src="/static/mock-fleet-model.js" defer></script>
+  <script src="/static/mock-fleet.js" defer></script>
+</head>
+<body class="mock-dashboard">
+  <a class="skip-link" href="#route-controls">Skip to routing controls</a>
+  <nav class="navigation-rail" aria-label="Main navigation">
+    <a class="rail-brand" href="/" aria-label="SWARM live dashboard"><svg width="34" height="34" viewBox="0 0 36 36" fill="none" aria-hidden="true"><path d="m18 2 14 8v16l-14 8-14-8V10L18 2Z" stroke="currentColor" stroke-width="1.5"/><path d="m18 9 8 4.5v9L18 27l-8-4.5v-9L18 9Z" fill="currentColor"/></svg></a>
+    <div class="main-nav">
+      <a href="/"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg><span>Live fleet</span></a>
+      <a href="/mock" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="12" cy="12" r="3"/><circle cx="4" cy="5" r="2"/><circle cx="20" cy="5" r="2"/><circle cx="4" cy="19" r="2"/><circle cx="20" cy="19" r="2"/><path d="m6 7 4 3m4 0 4-3M6 17l4-3m4 0 4 3"/></svg><span>Scale lab</span></a>
+    </div>
+    <span class="rail-footer">LAB</span>
+  </nav>
+  <div class="app-shell">
+    <header class="masthead">
+      <a class="brand" href="/" aria-label="SWARM live dashboard">SWARM<span class="brand-version">/ 0.1</span></a>
+      <span class="header-context">Collective recovery</span>
+      <div class="header-right"><span class="mock-badge"><i aria-hidden="true"></i>SYNTHETIC FLEET</span><a class="back-to-live" href="/">Live dashboard <svg class="link-arrow" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 12 12 4M4 4h8v8"/></svg></a></div>
+    </header>
+    <main>
+      <section class="page-intro" aria-labelledby="page-title">
+        <div><p class="eyebrow">NEXTHINK INNOVATHON <span class="slash">/</span> TOPOLOGY EXPLORER</p><h1 id="page-title">Fleet topology lab</h1><p class="intro-copy">A bigger swarm. A smaller routing table.</p></div>
+        <div class="fleet-size-control"><label for="fleet-size">FLEET SIZE</label><select id="fleet-size"><option value="64">64 devices</option><option value="256" selected>256 devices</option><option value="1024">1,024 devices</option></select></div>
+      </section>
+      <p class="simulation-notice"><span class="notice-symbol" aria-hidden="true">◈</span><span>Pastry-inspired routing visualization. The live SWARM fleet uses its coordinator; this simulation sends no device commands.</span></p>
+      <section class="metrics mock-metrics" aria-label="Synthetic topology metrics">
+        <div class="metric"><span class="metric-label">SYNTHETIC DEVICES</span><div class="metric-value"><strong id="metric-nodes">—</strong><span class="metric-dot teal"></span></div><p>Every dot is one modeled endpoint</p></div>
+        <div class="metric"><span class="metric-label">MAX CONTACTS / DEVICE</span><div class="metric-value"><strong id="metric-contacts">—</strong><span class="metric-dot blue"></span></div><p>Leaf neighbors + prefix contacts</p></div>
+        <div class="metric"><span class="metric-label">DIRECTED PEER CONTACTS</span><div class="metric-value"><strong id="metric-links">—</strong><span class="metric-dot neutral"></span></div><p>Counted from this generated topology</p></div>
+        <div class="metric"><span class="metric-label">SELECTED ROUTE HOPS</span><div class="metric-value"><strong id="metric-hops">—</strong><span class="metric-dot route"></span></div><p>Computed path, not network latency</p></div>
+      </section>
+      <div class="mock-grid">
+        <section class="panel graph-panel" aria-labelledby="graph-title">
+          <div class="panel-header"><div class="section-heading"><h2 id="graph-title">The knowledge network</h2></div><span class="graph-mode">PREFIX OVERLAY + CENTRAL COORDINATION</span></div>
+          <div class="graph-toolbar"><p id="graph-caption">Building the synthetic fleet…</p><div class="graph-toggles"><label><input id="peer-links" type="checkbox" checked>Peer links</label><label><input id="coordinator-links" type="checkbox" checked>Coordinator</label></div></div>
+          <div id="graph-wrap" class="graph-wrap">
+            <canvas id="fleet-graph" role="img" aria-label="Synthetic device graph with Pastry-inspired peer links and a central coordinator" aria-describedby="graph-description">Explore the same devices and route using the source and destination controls.</canvas>
+            <div class="coordinator-hub" aria-hidden="true"><div class="hub-icon"><svg width="32" height="32" viewBox="0 0 36 36" fill="none"><path d="m18 2 14 8v16l-14 8-14-8V10L18 2Z" stroke="currentColor" stroke-width="1.3"/><path d="m18 9 8 4.5v9L18 27l-8-4.5v-9L18 9Z" fill="currentColor"/></svg></div><strong>Coordinator</strong><span>Policy · canary · evidence</span><small>ILLUSTRATIVE CONTROL PLANE</small></div>
+            <div class="graph-corner"><span class="corner-cross" aria-hidden="true">+</span> ID SPACE / BASE 4</div>
+          </div>
+          <div class="graph-legend" aria-label="Graph legend"><span><i class="dot healthy"></i>Healthy</span><span><i class="dot issue"></i>Issue</span><span><i class="dot incompatible"></i>Incompatible</span><span><i class="dot offline"></i>Offline</span><span><i class="line peer"></i>Peer contact</span><span><i class="line control"></i>Grouped coordinator link</span><span><i class="line route"></i>Selected route</span></div>
+          <p id="graph-description" class="graph-description">Select a dot to inspect a device, or use the source and destination menus. Devices are grouped by their first two ID digits; the route list shows each hop. The 16 coordinator spokes represent groups of devices, not additional routing peers.</p>
+        </section>
+        <aside class="mock-sidebar">
+          <section class="panel route-panel" id="route-controls" aria-labelledby="route-title">
+            <div class="panel-header"><div class="section-heading"><h2 id="route-title">Trace a route</h2></div><span class="tiny-badge">SIMULATION</span></div>
+            <div class="route-body"><p class="sidebar-description">Follow a message through progressively longer ID prefixes.</p>
+              <label class="field-label" for="route-source">SOURCE DEVICE</label><select id="route-source" aria-describedby="route-form-note"></select>
+              <label class="field-label" for="route-target">DESTINATION DEVICE</label><select id="route-target"></select>
+              <div class="trace-buttons"><button class="button button-primary" id="trace-route"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4 2.5 13 8l-9 5.5v-11Z" stroke="currentColor" stroke-width="1.5"/></svg>Trace route</button><button class="button button-subtle" id="pause-route" disabled>Pause</button></div>
+              <p id="route-form-note" class="control-hint">Synthetic routing only. Health colors do not model network failures.</p>
+              <div class="route-result"><p id="route-status" role="status" aria-live="polite">Choose two devices to inspect their path.</p><ol id="route-steps" class="route-steps" aria-label="Selected route hops"></ol></div>
+              <button class="button button-subtle reset-view" id="reset-view">Reset view</button>
+            </div>
+          </section>
+          <section class="panel inspector-panel" aria-labelledby="inspector-title">
+            <div class="panel-header"><div class="section-heading"><h2 id="inspector-title">Device inspector</h2></div><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8m-4-4v4"/></svg></div>
+            <div class="inspector-body"><div class="inspector-identity"><strong id="selected-label">—</strong><span id="selected-status" class="status-pill">—</span></div><dl class="device-facts"><div><dt>Node ID</dt><dd id="selected-id">—</dd></div><div><dt>Prefix group</dt><dd id="selected-prefix">—</dd></div><div><dt>Peer contacts</dt><dd id="selected-contacts">—</dd></div></dl><div class="inspector-actions"><button class="button button-subtle" id="use-source">Use as source</button><button class="button button-subtle" id="use-target">Use as destination</button></div></div>
+          </section>
+        </aside>
+      </div>
+      <section class="model-explainer" aria-labelledby="model-title"><div class="explainer-mark" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 12 12 4M4 4h8v8"/></svg></div><div><h2 id="model-title">Many endpoints. A bounded set of contacts.</h2><p id="comparison-note">Calculating modeled contacts…</p><p class="model-caveat">This simplified, static overlay illustrates prefix routing; it is not a Pastry implementation or a fleet performance benchmark. Coordinator links are a separate conceptual control plane.</p></div></section>
+      <footer><span><span class="footer-mark">⬡</span> SWARM · TOPOLOGY LAB</span><span>Explore the architecture.<span class="footer-separator">/</span><a href="/">Return to the live fleet <svg class="link-arrow" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 12 12 4M4 4h8v8"/></svg></a></span></footer>
+      <noscript><p class="simulation-notice">Enable JavaScript to generate the synthetic graph. The live dashboard remains available at the home link.</p></noscript>
+    </main>
+  </div>
+</body>
+</html>

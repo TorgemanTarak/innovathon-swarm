@@ -210,4 +210,22 @@ are labelled unavailable. Mixed-version wire compatibility is not implemented.
 
 The UI follows [Nexthink visual references](docs/design.md), with local assets and no remote font dependency.
 
+### Mock fleet topology lab
+
+Open **http://127.0.0.1:8765/mock**, or choose **Topology lab** in the dashboard,
+to explore 64, 256 or 1,024 synthetic devices around a central coordinator.
+Select devices, inspect their routing contacts, and trace an animated route.
+The dropdowns and route-step buttons provide keyboard alternatives to the graph.
+Reduced-motion preferences skip the animation.
+
+This browser-only illustration borrows Pastry's ID-prefix routing and nearby
+leaf contacts. It is not a full Pastry implementation: membership is complete
+and static, and illustrative health colors do not affect reachability. The
+coordinator spokes represent grouped control relationships, not peer route hops.
+Only a subset of peer links is drawn for readability; counters include all
+generated directed contacts. These are model counts, not network benchmarks.
+The lab makes no fleet API calls and sends no device commands. Live SWARM still
+uses its existing coordinator and HTTP polling; opening the lab does not enable
+peer-to-peer networking.
+
 See [architecture](docs/architecture.md), [demo runbook](docs/demo-runbook.md), and [next steps](docs/roadmap.md).
