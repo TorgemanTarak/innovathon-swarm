@@ -294,8 +294,9 @@ dialog .button { justify-content: center; }
   .navigation-rail { position: static; width: 100%; height: 54px; flex-direction: row; padding: 0 12px; }
   .rail-brand { width: 40px; height: 100%; border: 0; flex-shrink: 0; }
   .rail-brand svg { width: 28px; }
-  .main-nav { flex-direction: row; justify-content: flex-end; gap: 8px; padding: 0; height: 100%; }
-  .main-nav a { min-height: 0; padding: 0 10px; flex-direction: row; gap: 6px; font-size: 11px; border-radius: 0; }
+  .main-nav { flex: 1; min-width: 0; width: auto; flex-direction: row; justify-content: flex-end; gap: 2px; padding: 0; height: 100%; }
+  .main-nav a { flex: 1; min-width: 0; min-height: 0; padding: 0 4px; flex-direction: column; gap: 2px; font-size: 9px; border-radius: 0; }
+  .main-nav a span { white-space: nowrap; }
   .main-nav svg { width: 17px; height: 17px; }
   .rail-footer { display: none; }
   .app-shell { margin-left: 0; }
