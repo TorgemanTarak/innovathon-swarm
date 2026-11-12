@@ -16,9 +16,16 @@
 - Load the workspace again: it fails. The dashboard records matching incidents.
 - Repair A manually using `uv run swarm repair --data-dir .swarm/local/mac-a`, or use the labelled simulated human repair button.
 - A observes the external change and verifies three successful operations.
-- Point to the candidate's evidence, action, source, and explanation mode.
+- Open **Repair evidence**. Show the recorded failure, external cache change and
+  recovery checks with observation times. Fingerprints identify changed samples;
+  the UI does not expose raw cache data or claim to identify the human who acted.
+- Show the newest recipe's current eligibility reasons. A is the source and
+  cannot validate its own discovery; compatible peers can become the canary.
 - Watch one canary repair and verify. Only then does the other compatible device receive the fix.
-- D remains broken and reports incompatible applicability. A matching error alone does not authorize an action.
+- D remains broken. Its eligibility reason shows app version 2.0.0 versus the
+  required 1.0.0. A matching error alone does not authorize an action.
+- Expand the canary and follower replay details to show their actual precondition,
+  action and verification observations. Legacy records may have no summaries.
 - Show actual recovery counts and the chronological event trail. Do not call three short checks proof of permanent resolution.
 
 ## Failure and pause story
@@ -28,7 +35,8 @@
 3. Wait for the candidate to appear without execution.
 4. Arm **Fail next verification** on both B and C so whichever is selected as canary will fail.
 5. Resume rollout. The canary really fails its functional operation; its old cache is restored.
-6. Show the failed outcome and paused recipe. The remaining devices receive no repair.
+6. Show the failed verification and **rollback restored** evidence, the paused
+   recipe and waiting peers. The remaining devices receive no repair.
 7. Reset to prepare another run. Global resume intentionally does not unpause a failed recipe.
 
 ## Teammate setup

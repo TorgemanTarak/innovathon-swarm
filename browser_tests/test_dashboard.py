@@ -31,6 +31,8 @@ def next_poll(page: Page) -> None:
 
 def test_manual_repair_canary_and_compatible_fleet_recover(page: Page, fleet: Fleet) -> None:
     connect(page, fleet)
+    controller = page.context.new_page()
+    connect(controller, fleet)
     # Open the actual app from the rendered endpoint link and exercise /work through its UI.
     with page.expect_popup() as popup:
         card(page, "Mac A").get_by_role("link", name="Open app").click()
@@ -52,17 +54,50 @@ def test_manual_repair_canary_and_compatible_fleet_recover(page: Page, fleet: Fl
     expect(page.locator(".recipe .status-pill").first).to_have_text("candidate")
     expect(page.locator("#metric-healthy")).to_have_text("1")
     expect(page.locator("#metric-replays")).to_have_text("0")
+    origin = page.locator(".origin-timeline")
+    expect(origin.locator(".evidence-step-heading strong")).to_have_text(
+        ["Functional failure", "Cache changed", "Origin recovery verified"]
+    )
+    expect(origin.locator(".evidence-step").first).to_contain_text("CACHE_INVALID")
+    expect(origin.locator(".evidence-step").nth(1)).to_contain_text("After: missing")
+    expect(origin.locator(".evidence-step").last).to_contain_text("3/3 checks passed")
+    candidate_state = fleet.client.get("/api/state").json()
+    source_evidence = candidate_state["recipes"][0]["candidate"]["evidence"]
+    assert origin.locator("time").evaluate_all("nodes => nodes.map(node => node.dateTime)") == [
+        record["observed_at"] for record in source_evidence
+    ]
+    assert all(record["evidence_id"] in origin.inner_text() for record in source_evidence)
+    for endpoint in ("mac-b", "mac-c"):
+        row = page.locator(f'.eligibility-row[data-agent-id="{endpoint}"]')
+        expect(row).to_have_attribute("data-reason", "global_paused")
+        expect(row.locator(".status-pill")).to_have_text("waiting")
+    # Keep a keyboard user's expanded evidence panel and focus through real state changes.
+    evidence_details = page.locator(".recipe details")
+    evidence_summary = evidence_details.locator("summary")
+    evidence_summary.click()
+    evidence_summary.focus()
     next_poll(page)
     assert fleet.client.get("/api/state").json()["outcomes"] == []
-    page.locator("#pause-button").click()
+    controller.locator("#pause-button").click()
     expect(page.locator("#network-status")).to_have_text("CANARY IN PROGRESS")
+    expect(page.locator('.eligibility-row[data-reason="canary_in_progress"]')).to_have_count(1)
     expect(page.locator("#metric-replays")).to_have_text("2")
     expect(page.locator("#metric-healthy")).to_have_text("3")
     expect(card(page, "Mac D").locator(".status-pill")).to_have_text("Issue detected")
     expect(page.locator(".recipe .status-pill").first).to_have_text("validated")
-    page.locator(".recipe details summary").click()
+    expect(evidence_details).to_have_attribute("open", "")
+    expect(evidence_summary).to_be_focused()
     expect(page.locator(".attempt")).to_have_count(2)
     expect(page.locator(".attempt .status-pill")).to_have_text(["verified", "verified"])
+    assert sorted(page.locator(".attempt-role").all_text_contents()) == ["Canary", "Follower"]
+    for attempt in page.locator(".attempt").all():
+        expect(attempt.locator(".evidence-step-heading strong")).to_have_text(
+            ["Repair precheck", "Repair applied", "Replay recovery verified"]
+        )
+        expect(attempt.locator(".evidence-step").last).to_contain_text("3/3 checks passed")
+    incompatible = page.locator('.eligibility-row[data-agent-id="mac-d"]')
+    expect(incompatible).to_have_attribute("data-reason", "environment_mismatch")
+    expect(incompatible).to_contain_text("App version 2.0.0 requires 1.0.0")
     app.locator("#load").click()
     expect(app.locator("#status")).to_have_attribute("data-state", "healthy")
 
@@ -78,8 +113,22 @@ def test_manual_repair_canary_and_compatible_fleet_recover(page: Page, fleet: Fl
     assert verified < follower
     assert {o["agent_id"] for o in state["outcomes"]} == {"mac-b", "mac-c"}
     assert all(o["checks_passed"] == o["checks_total"] == 3 for o in state["outcomes"])
+    # A second real discovery has a different compatibility cohort. Only the latest
+    # recipe gets a live fleet preview; earlier evidence stays readable and expanded.
+    controller.locator("#source-select").select_option("mac-d")
+    controller.locator("#repair-button").click()
+    expect(page.locator(".recipe")).to_have_count(2)
+    latest = page.locator(".recipe").first
+    earlier = page.locator(".recipe").nth(1)
+    expect(latest.locator(".eligibility-row")).to_have_count(4)
+    expect(earlier.locator(".eligibility-row")).to_have_count(0)
+    expect(earlier).to_contain_text("Current eligibility is shown on the latest recipe.")
+    expect(earlier.locator("details")).to_have_attribute("open", "")
+    expect(earlier.locator("details summary")).to_be_focused()
+    expect(earlier.locator(".attempt .status-pill")).to_have_text(["verified", "verified"])
     reset(page)
     app.close()
+    controller.close()
 
 
 def test_failed_canary_rolls_back_and_reset_restores_fleet(page: Page, fleet: Fleet) -> None:
@@ -111,6 +160,13 @@ def test_failed_canary_rolls_back_and_reset_restores_fleet(page: Page, fleet: Fl
     page.locator(".recipe details summary").click()
     expect(page.locator(".attempt .status-pill")).to_have_text("failed")
     expect(page.locator(".attempt p")).to_contain_text("previous cache restored")
+    expect(page.locator(".attempt .attempt-role")).to_have_text("Canary")
+    expect(page.locator(".attempt-header")).to_contain_text("0/3 required checks passed")
+    expect(page.locator(".attempt .evidence-step-heading strong")).to_have_text(
+        ["Repair precheck", "Repair applied", "Verification failed", "Previous cache restored"]
+    )
+    expect(page.locator(".attempt .evidence-step").nth(2)).to_contain_text("0/1 checks passed")
+    expect(page.locator(".attempt .evidence-step").nth(2)).to_contain_text("VERIFICATION_FAILED")
     expect(page.locator("#metric-replays")).to_have_text("0")
     state = fleet.client.get("/api/state").json()
     assert len(state["outcomes"]) == 1

@@ -7,7 +7,9 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from swarm.models import new_id, now_iso
+from pydantic import ValidationError
+
+from swarm.models import EvidenceSummary, new_id, now_iso
 
 
 class Journal:
@@ -86,6 +88,46 @@ class Journal:
                     }
                 )
         return result
+
+    def evidence_summaries(self, identities: list[str]) -> list[EvidenceSummary]:
+        """Project only the fixed diagnostic fields; old/unsupported records stay local."""
+        summaries = []
+        for record in self.evidence(identities[:8]):
+            fields = {
+                key: record[key]
+                for key in (
+                    "cache_before",
+                    "cache_after",
+                    "probe_result",
+                    "error_code",
+                    "checks_passed",
+                    "checks_total",
+                )
+                if key in record
+            }
+            if record["kind"] == "cache_changed":
+                fields.update(
+                    cache_before=record.get("previous"), cache_after=record.get("current")
+                )
+            elif record["kind"] == "recovery_verified":
+                count = record.get("success_count")
+                if type(count) is not int or not 3 <= count <= 100:
+                    continue
+                fields.update(probe_result="passed", checks_passed=count, checks_total=count)
+            try:
+                summaries.append(
+                    EvidenceSummary(
+                        evidence_id=record["evidence_id"],
+                        observed_at=record["timestamp"],
+                        kind=record["kind"],
+                        **fields,
+                    )
+                )
+            except ValidationError:
+                # Historical observations remain readable as references. Do not
+                # invent a timestamp, hash or successful probe for missing data.
+                continue
+        return summaries
 
     def get(self, key: str, default: Any = None) -> Any:
         row = self.connection.execute("SELECT value FROM state WHERE key=?", (key,)).fetchone()

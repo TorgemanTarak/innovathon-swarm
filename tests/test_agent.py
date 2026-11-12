@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import replace
 from pathlib import Path
@@ -96,6 +97,25 @@ async def test_observed_manual_change_requires_three_real_successful_probes(endp
     assert candidates[0]["verification_count"] == 3
     assert len(candidates[0]["evidence_ids"]) == 3
     assert candidates[0]["investigator"] == "deterministic"
+    evidence = candidates[0]["evidence"]
+    assert [item["kind"] for item in evidence] == [
+        "functional_failure",
+        "cache_changed",
+        "recovery_verified",
+    ]
+    assert [item["evidence_id"] for item in evidence] == candidates[0]["evidence_ids"]
+    assert evidence[0]["probe_result"] == "failed"
+    assert evidence[1]["cache_before"] == evidence[0]["cache_after"]
+    assert evidence[1]["cache_after"] == "missing"
+    assert evidence[2]["probe_result"] == "passed"
+    assert evidence[2]["checks_passed"] == evidence[2]["checks_total"] == 3
+    assert (
+        evidence[2]["cache_after"]
+        == hashlib.sha256(cache_path(agent.root).read_bytes()).hexdigest()
+    )
+    assert [item["observed_at"] for item in evidence] == sorted(
+        item["observed_at"] for item in evidence
+    )
     await agent.tick()
     assert len(hub.payloads("/api/candidates")) == 1
     heartbeat_index = max(
@@ -151,6 +171,17 @@ async def test_failed_functional_verification_rolls_back_actual_cache(endpoint):
     assert cache_path(agent.root).read_bytes() == original
     assert not (agent.root / ".fail-verification").exists()
     assert not hub.payloads("/api/candidates")
+    evidence = result["evidence"]
+    assert [item["kind"] for item in evidence] == [
+        "repair_precondition",
+        "repair_applied",
+        "verification_failed",
+        "rollback_restored",
+    ]
+    assert evidence[2]["error_code"] == "VERIFICATION_FAILED"
+    assert evidence[2]["checks_total"] == 1  # Attempted probes, not the required three.
+    assert evidence[2]["checks_passed"] == 0
+    assert evidence[-1]["cache_after"] == hashlib.sha256(original).hexdigest()
 
 
 async def test_incompatible_recipe_is_rejected_before_mutation(endpoint):
@@ -162,6 +193,7 @@ async def test_incompatible_recipe_is_rejected_before_mutation(endpoint):
     assert hub.payloads("/api/outcomes")[-1]["status"] == "rejected"
     assert cache_path(agent.root).read_bytes() == original
     assert not list((agent.root / "quarantine").iterdir())
+    assert hub.payloads("/api/outcomes")[-1]["evidence"] == []
 
 
 async def test_global_pause_defers_an_already_issued_assignment(endpoint):
@@ -411,5 +443,34 @@ async def test_manual_cache_change_during_failed_verification_is_not_rolled_back
                 root / "quarantine" / f"{assignment.assignment_id}.json"
             ).read_bytes() == corrupt
             assert not (root / ".fail-verification").exists()
+            assert outcome["evidence"][-1]["kind"] == "rollback_failed"
+            assert outcome["evidence"][-1]["cache_after"] == hashlib.sha256(restored).hexdigest()
+            assert not any(e["kind"] == "rollback_restored" for e in outcome["evidence"])
         finally:
             await agent.close()
+
+
+async def test_verified_evidence_survives_restart_and_outcome_retry_without_new_execution(endpoint):
+    agent, hub = endpoint
+    incident = await break_app(agent)
+    hub.work.assignment = assignment_for(agent, incident)
+    hub.outcome_failure = True
+    await agent.tick()
+    reported = hub.payloads("/api/outcomes")[-1]
+    assert [e["kind"] for e in reported["evidence"]] == [
+        "repair_precondition",
+        "repair_applied",
+        "repair_verified",
+    ]
+    assert reported["evidence"][-1]["checks_passed"] == 3
+    backups = list((agent.root / "quarantine").iterdir())
+    await agent.close()
+    hub.outcome_failure = False
+    restarted = EndpointAgent(agent.config, client=agent.client)
+    try:
+        await restarted.tick()
+        assert hub.payloads("/api/outcomes")[-1] == reported
+        assert list((agent.root / "quarantine").iterdir()) == backups
+        assert not restarted.journal.pending()
+    finally:
+        await restarted.close()

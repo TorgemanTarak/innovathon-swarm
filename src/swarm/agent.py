@@ -198,6 +198,13 @@ class EndpointAgent:
         self.journal.set("external_change", None)
         self.journal.set("healthy_streak", 0)
 
+    def _evidence_fingerprint(self) -> str | None:
+        """A diagnostic read must not turn unavailable evidence into a repair decision."""
+        try:
+            return fingerprint(self.root)
+        except (OSError, ValueError):
+            return None
+
     def _recover_interrupted_attempt(self, assignment: Assignment) -> None:
         outcome = self._outcome(
             assignment,
@@ -228,6 +235,13 @@ class EndpointAgent:
         backup: Path | None = None
         fault_injected = False
         checks = 0
+        evidence_ids: list[str] = []
+
+        def observe(kind: str, **data: Any) -> None:
+            evidence_ids.append(
+                self.journal.observe(kind, assignment_id=assignment.assignment_id, **data)
+            )
+
         try:
             incident_data = self.journal.get("incident")
             candidate = assignment.recipe.candidate
@@ -253,6 +267,17 @@ class EndpointAgent:
             expected_fingerprint = fingerprint(self.root)
 
             before, code, _ = await self._probe()
+            observe(
+                "repair_precondition",
+                cache_before=expected_fingerprint,
+                cache_after=self._evidence_fingerprint(),
+                probe_result="passed"
+                if before is True
+                else "failed"
+                if before is False
+                else "unknown",
+                error_code=code or None,
+            )
             if before is not False or code != "CACHE_INVALID":
                 raise ValueError("Functional probe did not reproduce the expected failure")
             if fingerprint(self.root) != expected_fingerprint or not cache_is_invalid(self.root):
@@ -260,8 +285,11 @@ class EndpointAgent:
             backup = quarantine_cache(self.root, assignment.assignment_id)
             if backup is None:
                 raise ValueError("Cache disappeared before execution")
-            self.journal.observe(
-                "repair_applied", action=candidate.action, assignment_id=assignment.assignment_id
+            observe(
+                "repair_applied",
+                action=candidate.action,
+                cache_before=expected_fingerprint,
+                cache_after=self._evidence_fingerprint(),
             )
             if self.journal.get("fail_next_verification", False):
                 self.journal.set("fail_next_verification", False)
@@ -271,11 +299,23 @@ class EndpointAgent:
             for index in range(3):
                 if index:
                     await asyncio.sleep(min(self.config.interval, 1.0))
-                healthy, _, _ = await self._probe()
+                healthy, code, _ = await self._probe()
                 if healthy is True:
                     checks += 1
                 else:
                     break
+            observe(
+                "repair_verified" if checks == 3 else "verification_failed",
+                cache_after=self._evidence_fingerprint(),
+                probe_result="passed"
+                if healthy is True
+                else "failed"
+                if healthy is False
+                else "unknown",
+                error_code=code or None,
+                checks_passed=checks,
+                checks_total=index + 1,
+            )
             if checks == 3:
                 outcome = self._outcome(
                     assignment,
@@ -287,6 +327,7 @@ class EndpointAgent:
             else:
                 rollback_cache(self.root, backup)
                 backup = None
+                observe("rollback_restored", cache_after=self._evidence_fingerprint())
                 outcome = self._outcome(
                     assignment,
                     status="failed",
@@ -300,8 +341,10 @@ class EndpointAgent:
                 status = "failed"
                 try:
                     rollback_cache(self.root, backup)
+                    observe("rollback_restored", cache_after=self._evidence_fingerprint())
                     detail += "; previous cache restored"
                 except (OSError, ValueError):
+                    observe("rollback_failed", cache_after=self._evidence_fingerprint())
                     detail += "; rollback failed, inspect endpoint"
             outcome = self._outcome(
                 assignment, status=status, checks_passed=checks, detail=detail[:2000]
@@ -312,6 +355,7 @@ class EndpointAgent:
             # Agent-generated changes never count as new human repair discoveries.
             self._reset_learning_baseline()
         outcome.duration_ms = int((time.monotonic() - started) * 1000)
+        outcome.evidence = self.journal.evidence_summaries(evidence_ids)
         self.journal.finish_attempt(assignment.assignment_id, outcome.model_dump())
         self.journal.observe(
             "repair_outcome", status=outcome.status, assignment_id=assignment.assignment_id
@@ -323,7 +367,11 @@ class EndpointAgent:
         change_id = self.journal.get("external_change")
         if not change_id or healthy_streak < 3:
             return
-        verification_id = self.journal.observe("recovery_verified", success_count=healthy_streak)
+        verification_id = self.journal.observe(
+            "recovery_verified",
+            success_count=healthy_streak,
+            cache_after=self.journal.get("fingerprint"),
+        )
         evidence_ids = [*incident.evidence_ids, change_id, verification_id]
         explanation = (
             "A change to the watched application cache preceded recovery. "
@@ -350,6 +398,7 @@ class EndpointAgent:
             explanation=explanation,
             investigator=investigator,
             verification_count=healthy_streak,
+            evidence=self.journal.evidence_summaries(evidence_ids),
         )
         self.journal.enqueue(
             f"candidate:{candidate.candidate_id}", "/api/candidates", candidate.model_dump()
@@ -393,7 +442,13 @@ class EndpointAgent:
             if healthy is False and error == "CACHE_INVALID":
                 active_issue = issue_key(error)
                 if not incident_data or self.journal.get("resolved", False):
-                    observation_id = self.journal.observe("functional_failure", error_code=error)
+                    observation_id = self.journal.observe(
+                        "functional_failure",
+                        error_code=error,
+                        probe_result="failed",
+                        cache_before=current,
+                        cache_after=after_probe,
+                    )
                     incident = IssueReport(
                         agent_id=self.config.agent_id,
                         issue_key=active_issue,

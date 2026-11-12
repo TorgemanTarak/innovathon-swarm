@@ -179,11 +179,42 @@ select option { background: var(--panel); color: var(--text); }
 .proof-path b { font-size: 12px; color: var(--muted); font-weight: 400; }
 .recipe details { font-size: 12px; margin-top: 18px; color: var(--blue); border-top: 1px solid var(--line); padding-top: 12px; }
 .recipe details summary { cursor: pointer; }
-.attempt-list { margin-top: 10px; display: grid; gap: 6px; }
-.attempt { display: flex; align-items: start; gap: 10px; padding: 9px 10px; background: var(--panel2); font-size: 12px; }
-.attempt strong { font-weight: 600; min-width: 80px; color: var(--text); }
-.attempt p { margin: 0; color: var(--muted); overflow-wrap: anywhere; }
-.attempt .status-pill { margin-left: auto; }
+.origin-evidence, .eligibility { margin-top: 20px; }
+.evidence-section-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 6px 16px; flex-wrap: wrap; }
+.recipe h4 { color: var(--text); font-size: 12px; font-weight: 600; margin: 0; }
+.evidence-section-heading > span { font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
+.summary-unavailable { color: var(--muted); font-size: 12px; padding: 10px 0; }
+.evidence-timeline { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; list-style: none; margin: 10px 0 0; padding: 0; color: var(--text); }
+.origin-timeline { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.evidence-step { min-width: 0; border: 1px solid var(--line); border-top: 2px solid var(--blue-bright); border-radius: 3px; padding: 10px; background: var(--panel); font-size: 11px; overflow-wrap: anywhere; }
+.evidence-step-heading { display: flex; align-items: baseline; gap: 7px; margin-bottom: 4px; }
+.evidence-step-heading strong { font-weight: 600; font-size: 12px; }
+.step-number { font: 10px var(--mono); color: var(--blue); flex-shrink: 0; }
+.evidence-step time, .evidence-reference, .attempt-meta { color: var(--muted); font-size: 10px; }
+.evidence-facts { margin: 6px 0; }
+.evidence-cache { color: var(--muted); }
+.evidence-cache code { font: 10px var(--mono); color: var(--text); }
+.evidence-reference { margin-top: 6px; font-family: var(--mono); }
+.evidence-caveat { margin: 14px 0 0; }
+.eligibility-list { max-height: 280px; overflow: auto; border: 1px solid var(--line); border-radius: 3px; }
+.eligibility-list:focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; }
+.eligibility-row { display: grid; grid-template-columns: minmax(120px, 1fr) 90px minmax(0, 3fr); align-items: start; gap: 8px 12px; padding: 9px 12px; font-size: 12px; border-bottom: 1px solid var(--line); }
+.eligibility-row:last-child { border-bottom: 0; }
+.eligibility-row .status-pill { justify-self: start; }
+.eligibility-actor { min-width: 0; overflow-wrap: anywhere; }
+.eligibility-actor strong { font-weight: 600; }
+.eligibility-actor > span { display: block; color: var(--muted); font-size: 10px; text-transform: capitalize; }
+.eligibility-row p { margin: 0; color: var(--muted); overflow-wrap: anywhere; }
+.status-pill.waiting { color: var(--amber); border-color: #f3c3bb; background: var(--amber-tint); }
+.status-pill.excluded, .status-pill.completed { color: var(--muted); border-color: var(--line); background: var(--panel2); }
+.status-pill.assigned { color: var(--blue); border-color: #b7cff0; background: var(--blue-tint); }
+.attempt-list { margin-top: 10px; display: grid; gap: 10px; }
+.attempt { min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: 3px; background: var(--panel2); color: var(--text); font-size: 12px; }
+.attempt-header { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; }
+.attempt-header strong { font-weight: 600; overflow-wrap: anywhere; }
+.attempt-role { color: var(--blue); }
+.attempt-header .status-pill { margin-left: auto; }
+.attempt p { margin: 8px 0 4px; color: var(--muted); overflow-wrap: anywhere; }
 .activity-panel { margin-top: 22px; }
 .activity-count { font-size: 11px; letter-spacing: .3px; color: var(--muted); }
 .event-row { display: grid; grid-template-columns: 70px 155px minmax(0, 1fr) 125px; gap: 12px; align-items: start; padding: 13px 20px; border-bottom: 1px solid var(--line); font-size: 12px; }
@@ -317,8 +348,12 @@ dialog .button { justify-content: center; }
   .recipe-description { font-size: 12px; }
   .proof-value { font-size: 12px; }
   .proof-note { font-size: 10px; }
-  .attempt { flex-wrap: wrap; }
-  .attempt p { order: 3; width: 100%; }
+  .evidence-timeline, .origin-timeline { grid-template-columns: 1fr; }
+  .eligibility-list { max-height: 480px; }
+  .eligibility-row { grid-template-columns: minmax(0, 1fr) auto; padding: 10px; }
+  .eligibility-row p { grid-column: 1/-1; }
+  .evidence-section-heading { display: block; }
+  .evidence-section-heading > span { display: block; margin-top: 4px; }
   .event-row { grid-template-columns: 58px 1fr 75px; padding: 12px 15px; gap: 6px 10px; }
   .event-time { grid-column: 1; grid-row: 1; font-size: 10px; }
   .event-kind { grid-column: 2; grid-row: 1; }
