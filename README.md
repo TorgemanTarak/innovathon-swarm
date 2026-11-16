@@ -6,6 +6,12 @@ A working, Mac-first prototype for Nexthink Innovathon: observe a local recovery
 
 The demo is a real distributed application. Each endpoint owns its cache, app process, local journal and repair executor. The coordinator shares typed recipes and measured outcomes. A one-machine rehearsal runs the same components as separate processes and explicitly labels the endpoints simulated.
 
+**For the team:** start with the [documentation handbook](docs/README.md), then
+follow [getting started](docs/getting-started.md), the
+[architecture](docs/architecture.md), and the [module map](docs/modules/README.md).
+The handbook includes CLI configuration, API/storage references, operations and
+developer guidance.
+
 ## Run it
 
 Prerequisites: Python 3.11+ and [uv](https://docs.astral.sh/uv/getting-started/installation/). No Docker, VM, sudo, Node build, cloud API key or model download required.
@@ -20,8 +26,8 @@ uv run swarm demo --include-incompatible
 Open **http://127.0.0.1:8765**. Three compatible endpoints and one incompatible endpoint run on your machine. Their demo apps use ports 8771–8774. Press Ctrl+C to stop all child processes. State and logs persist under `.swarm/local/`.
 
 1. Wait for all endpoints to report healthy.
-2. **Inject fault** to corrupt each app's actual cache. Loading projects now fails.
-3. Select **Mac A** and **Repair one device**. This button simulates a human quarantining A's cache.
+2. **Inject cache fault** to corrupt each app's actual cache. Loading projects now fails.
+3. Select **Mac A** and **Simulate human repair**. This button simulates a human quarantining A's cache.
 4. A observes that change and three successful functional operations, then proposes a repair.
 5. B or C becomes the canary. The other receives the recipe only after the canary verifies recovery.
 6. D stays broken because its app version is incompatible. The activity log explains why.
@@ -57,13 +63,14 @@ uv run swarm node \
   --app-port 8771
 ```
 
-Use a unique `--id` on each Mac. Each data directory stays bound to that endpoint ID; choose a new directory if you change `--id`. Enter the token in the dashboard's **Connection** dialog. `node` starts both the app and the endpoint agent. Data directories must be empty on first use; SWARM creates a marker and only modifies its own known app resources. `~/...` paths work.
+Use a unique `--id` on each Mac. Each data directory stays bound to that endpoint ID; choose a new directory if you change `--id`. Enter the token using the dashboard's **Configure coordinator access** lock button. `node` starts both the app and the endpoint agent. Data directories must be empty on first use; SWARM creates a marker and only modifies its own known app resources. `~/...` paths work.
 
 Check LAN reachability early: office Wi-Fi isolation and host firewalls can block direct laptop connections. The local rehearsal is the fallback. The shared token is a trusted-team demo mechanism; use this only on an appropriate private network. TLS, per-device identities and production enrollment are future work.
 
 All endpoints must use the same reachable coordinator URL and token. The dashboard
 shows online, offline and registered counts separately from app health. Online means
-a heartbeat within 30 seconds; a broken app can still have an online agent. The
+contact within 30 seconds: registration initializes freshness, then heartbeats
+refresh it. A broken app can still have an online agent. The
 network diagram labels its six-endpoint sample when the fleet is larger.
 
 To verify a known fleet, use its expected endpoint IDs:
@@ -228,4 +235,4 @@ The lab makes no fleet API calls and sends no device commands. Live SWARM still
 uses its existing coordinator and HTTP polling; opening the lab does not enable
 peer-to-peer networking.
 
-See [architecture](docs/architecture.md), [demo runbook](docs/demo-runbook.md), and [next steps](docs/roadmap.md).
+See the [team handbook](docs/README.md), [demo runbook](docs/demo-runbook.md), and [next steps](docs/roadmap.md).
