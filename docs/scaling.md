@@ -7,9 +7,11 @@ its own work and submits heartbeats, incident evidence and outcomes. Agents neve
 need the addresses of other endpoints. Computers using the same reachable URL and
 token join the same fleet; separate coordinator databases are separate fleets.
 
-The dashboard counts every registered endpoint, distinguishing recent heartbeats
-from functional app health. An endpoint is offline after 30 seconds without a
-heartbeat. If the browser loses the coordinator, the UI labels connectivity as the
+The dashboard counts every registered endpoint, distinguishing connectivity
+from functional app health. Initial registration, or registration with a changed
+environment, initializes last-seen time; heartbeats refresh it. An endpoint is
+offline once that time is more than 30 seconds old. If the browser loses the
+coordinator, the UI labels connectivity as the
 last received snapshot. The topology drawing shows at most six endpoints and labels
 that sample; the counters and endpoint cards describe the full snapshot.
 

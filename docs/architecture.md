@@ -1,6 +1,55 @@
 # Architecture
 
+[Handbook](README.md) · [Module map](modules/README.md) · [Repair lifecycle](repair-lifecycle.md)
+
 SWARM demonstrates the conversion of one observed local recovery into a reusable, empirically tested repair. It learns an association between an issue and a supported action. It does not establish general causality or synthesize arbitrary system commands.
+
+## Runtime boundaries
+
+There are three executable roles: the central coordinator, an endpoint agent, and
+the endpoint's sample application. The browser is a fourth client of the
+coordinator. `swarm demo` supervises all server/agent processes on one host;
+`swarm node` supervises an app/agent pair on a participating machine. Neither
+mode uses a VM. See [getting started](getting-started.md) for both arrangements.
+
+```mermaid
+flowchart LR
+    Browser["Live dashboard / app.js"] -->|"poll state; request controls"| Hub["Coordinator: FastAPI + Registry"]
+    Hub --> Shared[("Coordinator SQLite")]
+    subgraph DeviceA["Endpoint A"]
+        AgentA["EndpointAgent"] -->|"GET /work"| AppA["Demo application"]
+        AgentA --> JournalA[("Local journal + outbox")]
+        AgentA -->|"bounded repair"| FilesA["Marked app data directory"]
+        AppA --> FilesA
+    end
+    subgraph DeviceB["Endpoint B"]
+        AgentB["EndpointAgent"] --> AppB["Demo application"]
+        AgentB --> JournalB[("Local journal + outbox")]
+    end
+    AgentA -->|"outbound HTTP: work, heartbeat, evidence"| Hub
+    AgentB -->|"outbound HTTP: work, heartbeat, evidence"| Hub
+    Mock["Topology lab /mock"] --> Synthetic["Browser-only graph model"]
+```
+
+Arrows from endpoints to the coordinator represent requests. Commands and
+assignments return in the response to a work poll; the coordinator does not
+open a connection to a laptop. Each agent probes its own app on loopback. No
+agent needs another agent's address, and there is no automatic LAN discovery.
+The mock graph is delivered by the web server but never reads fleet state.
+
+| Boundary | Code | Authority |
+|---|---|---|
+| HTTP transport | `coordinator.py` | Validate requests, enforce configured shared-token authentication and demo-route guards. |
+| Fleet policy | `registry.py`, `models.py` | Admit evidence, match environment, serialize canary selection and accept outcomes. |
+| Local execution | `agent.py`, `repairs.py` | Recheck incident and app state, perform the supported action and verify or roll back. |
+| Local durability | `journal.py` | Retain observations, pending reports and attempt records across restarts. |
+| Explanation | `investigator.py` | Produce optional advisory text; no execution or rollout authority. |
+| Presentation | `web/app.js` | Display snapshots and request controls; cannot bypass server or endpoint checks. |
+
+See the [module map](modules/README.md) for source links and the
+[API reference](api.md) for concrete messages.
+
+## Repair information flow
 
 ```mermaid
 flowchart TD
@@ -22,7 +71,7 @@ flowchart TD
 
 ## Detection and learning
 
-The canonical issue key hashes a schema version, app identity, operation and bounded error code. Versions/platform are kept in applicability metadata. Application logs and cache contents remain local. The current watcher compares cache fingerprints once per tick; it is intentionally app-scoped.
+The canonical issue key hashes a schema version, app identity, operation and bounded error code. Versions/platform are kept in applicability metadata. Application logs and cache contents remain local. The current watcher samples cache fingerprints around each functional probe, with additional checks during execution; it is intentionally app-scoped.
 
 An incident opens only after `/work` fails with the recognized cache error. A candidate requires an observed external cache change after that incident and three successful subsequent operations. Ordinary silence or process liveness cannot count as recovery. SWARM's own repairs update the observation baseline so they cannot become new independent human discoveries.
 
@@ -70,11 +119,11 @@ Demo filesystem helpers reject unmarked nonempty directories, traversal and syml
 
 ## Coordination and durability
 
-The coordinator uses SQLite transactions to admit one canary per issue/action/environment cohort. Matching followers become eligible only after a verified canary outcome. Incompatible devices receive no assignment. Failed or inconclusive results pause the recipe; global resume does not silently reactivate it.
+The coordinator uses SQLite transactions to admit one canary per issue/action/environment cohort. Matching followers become eligible only after a verified canary outcome. Incompatible devices receive no assignment. Accepted failed, rejected or inconclusive results pause the recipe; global resume does not silently reactivate it.
 
 Assignments have IDs, deadlines and terminal outcomes. Duplicate submissions cannot inflate evidence counts. The local journal is bound to its endpoint ID, including across demo resets. The local journal claims an attempt before mutation; after response loss it resends the stored outcome rather than applying the action again. An agent interrupted during a repair reports inconclusive instead of blindly repeating it. Inspect its quarantined file when recovering such an interruption.
 
-Assignment timeout defaults to 120 seconds; an unconfirmed canary pauses the recipe. Global pause prevents new work delivery, including pending work not yet picked up. An action already running may finish. This is not instant remote cancellation.
+Assignment timeout defaults to 120 seconds; an unconfirmed canary pauses the recipe. Global pause holds repair assignments, including pending assignments not yet picked up; demo commands remain deliverable. An action already running may finish. This is not instant remote cancellation.
 
 The dashboard previews current eligibility for the newest recipe, identifying
 eligible, waiting, excluded, assigned and completed endpoints with specific
@@ -102,3 +151,20 @@ The dashboard and health endpoint are readable without a token; fleet data and m
 The shared core consists of wire contracts, evidence storage, issue matching, candidate association, rollout and verification semantics. The current adapter is a controlled app with file operations and HTTP probes that runs natively on macOS/Linux.
 
 A Windows adapter would provide Event Log/WER observations and invoke known PowerShell/Remote Action implementations. A macOS system adapter could add Unified Logging and crash-report ingestion. Neither broad OS integration is implied by the prototype.
+
+## Design choices and current limits
+
+| Choice | Why it fits this implementation | Limit to carry into future work |
+|---|---|---|
+| Central coordinator and outbound polling | Simple membership and a single canary authority; no all-to-all endpoint discovery. | One coordinator is a bottleneck and single point of failure; no automatic failover. |
+| SQLite at coordinator and endpoint | Transactions and durable state without operating another service. | Coordinator writes serialize; most history is not bounded or paginated. |
+| Exact app/platform compatibility | A shared error signature alone cannot authorize the same repair everywhere. | Cohort rules need deliberate extension as more application versions/actions are supported. |
+| Preinstalled typed action | The recipe selects reviewed behavior with local prechecks and rollback. | Supporting another repair requires code, policy and tests; no arbitrary script synthesis. |
+| Active functional probes | Recovery is based on an operation the app must perform successfully. | Three checks are a short observation window, not proof of permanent resolution. |
+| Advisory local model | An explanation can improve without changing execution authority. | No model is required; there is no generic terminal investigator or model performance claim. |
+
+The detailed operational consequences are documented in
+[data and state](data-and-state.md), [security](security.md) and
+[scaling](scaling.md). [Development](development.md) explains how to extend the
+implementation, while [roadmap](roadmap.md) separates those possibilities from
+features already present.
